@@ -147,6 +147,7 @@ export class RoadScene extends Phaser.Scene {
   create() {
     this.buildTextures();
     this.buildCity();
+    this.flattenCity();
     const start = this.route ? this.route.points[0] : this.validResume();
     const target = this.route?.points[1];
     const angle = target ? Math.atan2(target.y - start.y, target.x - start.x) : Phaser.Math.DegToRad(this.resume?.angle ?? 0);
@@ -354,10 +355,22 @@ export class RoadScene extends Phaser.Scene {
     this.culled.push({ x, y, width, height, items });
   }
 
+  private flattenCity() {
+    const renderer = this.game.renderer;
+    if (renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer && renderer.gl.getParameter(renderer.gl.MAX_TEXTURE_SIZE) < WIDTH) return;
+    type LayerItem = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth;
+    const background = (this.children.getChildren() as LayerItem[]).filter(item => item.depth <= 38).sort((first, second) => first.depth - second.depth);
+    const ground = this.add.renderTexture(0, 0, WIDTH, HEIGHT).setDepth(39).setOrigin(0);
+    ground.draw(background);
+    const flattened = new Set<Phaser.GameObjects.GameObject>(background);
+    for (const group of this.culled) group.items = group.items.filter(item => !flattened.has(item));
+    for (const object of background) object.destroy();
+  }
+
   private buildCity() {
-    const ground = this.add.graphics().setDepth(1);
+    const ground = this.add.graphics().setDepth(2);
     this.add.tileSprite(0, 0, WIDTH, HEIGHT, 'road-lot').setOrigin(0);
-    this.add.tileSprite(3375, 0, WIDTH - 3375, HEIGHT, 'road-water').setOrigin(0).setDepth(2);
+    this.add.tileSprite(3375, 0, WIDTH - 3375, HEIGHT, 'road-water').setOrigin(0).setDepth(1);
     ground.fillStyle(0x172128, 0.72);
     ground.fillRect(3365, 0, 20, HEIGHT);
     ground.lineStyle(2, 0x6a7779, .64);
@@ -875,7 +888,7 @@ export class RoadScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (bridge.paused || !this.player) return;
-    const seconds = Math.min(delta / 1000, .05);
+    const seconds = Math.min((this.game.loop.rawDelta || delta) / 1000, .22);
     this.modeClock += seconds;
     this.hitCooldown = Math.max(0, this.hitCooldown - seconds);
     const keys = this.keys;

@@ -36,9 +36,15 @@ const toastRoot = document.querySelector<HTMLElement>('#toast-root')!
 const inputFile = document.querySelector<HTMLInputElement>('#import-file')!
 
 const STATIONS = {
-  lift: 'Elevador', tools: 'Banco de herramientas', pc: 'Ordenador', parts: 'Almacén de recambios',
-  paint: 'Cabina de pintura', engine: 'Banco de motores', parking: 'Aparcamiento',
-  diagnostic: 'Máquina de diagnóstico', exit: 'Portón de salida',
+  lift: { name:'Elevador', hint:'Consulta el desgaste de las piezas del coche.' },
+  tools: { name:'Banco de herramientas', hint:'Monta los recambios que tienes en el inventario.' },
+  pc: { name:'Ordenador', hint:'Acepta encargos y consulta las cuentas del taller.' },
+  parts: { name:'Almacén de recambios', hint:'Compra las piezas antes de empezar una reparación.' },
+  paint: { name:'Cabina de pintura', hint:'Prueba colores y piezas antes de instalarlos.' },
+  engine: { name:'Banco de motores', hint:'Repara el motor, el turbo y la transmisión.' },
+  parking: { name:'Aparcamiento', hint:'Cambia de vehículo, reposta o vende un coche.' },
+  diagnostic: { name:'Máquina de diagnóstico', hint:'Localiza la avería que impide el arranque.' },
+  exit: { name:'Portón de salida', hint:'Abre el portón y sal a conducir por Puerto Umbral.' },
 } as const
 type Station = keyof typeof STATIONS
 type Place = 'menu' | 'garage' | 'road' | 'race'
@@ -60,10 +66,13 @@ const intro = [
   { art: 'story-discovery.png', title: 'Arranque en frío', caption: 'El coche sigue en el elevador. Mara dejó una nota en la caja de herramientas.', image: 'center' },
 ]
 let state = newGame()
+const seenStations = new Set<Station>()
+let stationTipTimer = 0
 let selectedSlot = 1
 let slots: (SlotSummary | null)[] = [null, null, null]
 let settingsInMenu = { ...state.settings }
 let panel: Panel | null = null
+let returnFocus: HTMLElement | null = null
 let place: Place = 'menu'
 let runActive = false
 let showingIntro = false
@@ -73,7 +82,7 @@ let overwriteSlot = 1
 let mode: Mode = 'free'
 let pendingMode: RaceMode = 'sprint'
 let roadHud: RoadHUD | null = null
-let raceResult: { report: RaceReport; reward: RaceReward } | null = null
+let raceResult: { report: RaceReport; reward: RaceReward; finish?: PlayerPosition } | null = null
 let currentJobId = ''
 let currentSaleId = ''
 let currentPart: ComponentKey = 'battery'
@@ -128,6 +137,20 @@ function iconButton(name: string, action: string, label: string) {
   return '<button class="icon-button" data-action="' + safe(action) + '" title="' + safe(label) + '" aria-label="' + safe(label) + '">' + icon(name) + '</button>'
 }
 
+function hasHardwareWebGL() {
+  const probe = document.createElement('canvas')
+  try {
+    const context = probe.getContext('webgl', { failIfMajorPerformanceCaveat: true })
+    if (!context) return false
+    const info = context.getExtension('WEBGL_debug_renderer_info')
+    const renderer = info ? String(context.getParameter(info.UNMASKED_RENDERER_WEBGL)) : ''
+    context.getExtension('WEBGL_lose_context')?.loseContext()
+    return !/swiftshader|llvmpipe|software/i.test(renderer)
+  } catch {
+    return false
+  }
+}
+
 async function makeEngine() {
   const [{ default: Phaser }, { GarageScene }, { RoadScene }] = await Promise.all([
     import('phaser'), import('./garage'), import('./road'),
@@ -139,7 +162,7 @@ async function makeEngine() {
     create() { booted() }
   }
   const game = new Phaser.Game({
-    type: Phaser.AUTO,
+    type: hasHardwareWebGL() ? Phaser.AUTO : Phaser.CANVAS,
     parent: canvasHost,
     width: 960,
     height: 540,
@@ -215,6 +238,7 @@ async function startSlot(slot: number, fresh: boolean) {
     state = loaded
     if (fresh) state.settings = { ...settingsInMenu }
     selectedSlot = slot
+    seenStations.clear()
     runActive = true
     audio.levels(state.settings.music,state.settings.sfx)
     bridge.quality = state.settings.quality
@@ -310,7 +334,7 @@ function renderHud() {
     '</small></div></div><div class="game-bank"><strong data-hud="money"></strong><span data-hud="rep"></span></div><div class="game-buttons">' +
     iconButton('map','open:map','Mapa (M)') + iconButton('bag','open:inventory','Inventario (I)') +
     iconButton('pause','open:pause','Pausa (Escape)') +
-    '</div></div><div id="coach" class="coach" hidden></div><div class="prompt" data-hud="prompt" hidden></div>' +
+    '</div></div><div id="coach" class="coach" hidden></div><aside class="station-tip" id="station-tip" hidden></aside><div class="prompt" data-hud="prompt" hidden></div>' +
     (isDriving ? '<div class="race-strip" ' + (place === 'race' ? '' : 'hidden') + '><div><small>TIEMPO</small><strong data-hud="time">00:00.00</strong></div><div><small>PUESTO</small><strong data-hud="rank">—</strong></div><div><small>CONTROL</small><strong data-hud="cp">—</strong></div><div><small data-hud="extra-label">VUELTA</small><strong data-hud="extra">—</strong></div></div><div class="countdown" data-hud="countdown" hidden></div><canvas class="minimap" width="150" height="100" aria-label="Minimapa"></canvas><div class="drive-gauges"><strong class="speed-number"><span data-hud="speed">0</span><small>KM/H</small></strong><div class="drive-detail"><span>NITRO</span><progress data-hud="nitro" max="100" value="100"></progress></div><div class="drive-detail"><span data-hud="damage">Daños 0 %</span><span data-hud="gear">N</span></div></div>' : '') +
     '<div class="game-controls"><span class="key">WASD</span>' + (isDriving ? '<span>Conducir</span><span class="key">Espacio</span><span>Derrapar</span><span class="key">Shift</span><span>Nitro</span>' : '<span>Mover</span><span class="key">E</span><span>Interactuar</span>') +
     '</div><div class="touch-controls"><div>' + ['up','left','down','right'].map(direction => '<button class="touch-' + direction + '" data-touch="' + direction + '" aria-label="' + ({up:'Arriba',left:'Izquierda',down:'Abajo',right:'Derecha'})[direction as 'up'] + '">' + icon(direction,16) + '</button>').join('') +
@@ -426,6 +450,7 @@ const currentJob = () => JOBS.find(item => item.id === state.job?.id)
 const partStatus = (key: ComponentKey) => Math.round(activeCar(state).condition[key])+' %'
 
 function openPanel(next: Panel) {
+  if (!panel) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   if (panel === 'work') repairCleanup()
   repairCleanup = () => {}
   if (next === 'paint' && panel !== 'paint') {
@@ -433,6 +458,8 @@ function openPanel(next: Panel) {
     previewMods = {}
   }
   panel = next
+  front.inert = true
+  gameUi.inert = true
   bridge.paused = true
   bridge.resetTouch()
   if (place === 'road' || place === 'race') { audio.boost(false); audio.drive(0,0,0,0) }
@@ -445,13 +472,19 @@ function closePanel(restore = true) {
   repairCleanup = () => {}
   panel = null
   modalRoot.replaceChildren()
+  front.inert = false
+  gameUi.inert = false
   bridge.paused = false
-  if (restore && place !== 'menu') canvasHost.querySelector('canvas')?.focus?.()
+  if (restore && returnFocus?.isConnected) returnFocus.focus()
+  returnFocus = null
 }
 
 function renderModal(focus = true) {
   if (!panel) return
   const previousTop = focus ? 0 : modalRoot.querySelector('.sheet-body')?.scrollTop ?? 0
+  const previous = !focus && document.activeElement instanceof HTMLElement && modalRoot.contains(document.activeElement) ? document.activeElement : null
+  const focusAttribute = previous?.hasAttribute('data-preview') ? 'data-preview' : 'data-action'
+  const focusValue = previous?.getAttribute(focusAttribute)
   const {title,category,body,narrow} = panelContent(panel)
   modalRoot.innerHTML = '<div class="modal-backdrop"><section class="sheet' + (narrow ? ' narrow':'') +
     '" role="dialog" aria-modal="true" aria-labelledby="panel-title" tabindex="-1"><header><div><span class="eyebrow">' + safe(category) +
@@ -475,6 +508,7 @@ function renderModal(focus = true) {
     })
   }
   if (focus) modalRoot.querySelector<HTMLElement>('.sheet')?.focus()
+  else if (focusValue) modalRoot.querySelector<HTMLElement>('['+focusAttribute+'="'+CSS.escape(focusValue)+'"]:not(:disabled)')?.focus({preventScroll:true})
 }
 
 function panelContent(target: Panel): {title:string;category:string;body:string;narrow?:boolean} {
@@ -823,7 +857,7 @@ function dispatch(action: string) {
       return
     case 'start-race': startRace(); return
     case 'result-garage': void launch('garage'); return
-    case 'result-road': void launch('road','free',state.position.scene === 'road' ? state.position : undefined); return
+    case 'result-road': void launch('road','free',raceResult?.finish); return
     case 'abandon':
       applied(abandonRace(state,{distance:roadHud?.distance ?? 0,damage:roadHud?.damage ?? 0}),false)
       void launch('garage')
@@ -947,6 +981,11 @@ document.addEventListener('visibilitychange',() => {
 window.setInterval(()=>{ if (place === 'road') { flushTrip(); commit() } },15000)
 
 bridge.on('garage:ready',() => { if (place === 'garage') refreshWorld() })
+if (import.meta.env.DEV) {
+  bridge.on('garage-coordinates',({x,y}:{x:number;y:number}) => {
+    if (place === 'garage') Object.assign(gameUi.dataset,{x,y})
+  })
+}
 bridge.on('move',({x,y}:{x:number;y:number}) => {
   if (place !== 'garage') return
   state.position = {scene:'garage',x,y}
@@ -961,6 +1000,15 @@ bridge.on('near',({id,label}:{id?:Station;label?:string}) => {
   if (place !== 'garage') return
   if (import.meta.env.DEV) gameUi.dataset.near = id ?? ''
   updatePrompt(label)
+  if (!id || seenStations.has(id) || state.tutorial.skipped) return
+  seenStations.add(id)
+  const tip = gameUi.querySelector<HTMLElement>('#station-tip')
+  if (!tip) return
+  const station = STATIONS[id]
+  tip.innerHTML = '<strong>'+safe(station.name)+'</strong><span>'+safe(station.hint)+'</span>'
+  tip.hidden = false
+  clearTimeout(stationTipTimer)
+  stationTipTimer = window.setTimeout(() => { tip.hidden = true },3600)
 })
 bridge.on('station',({id}:{id:Station}) => {
   if (place !== 'garage' || panel || performance.now()-lastInteraction < 160) return
@@ -983,7 +1031,8 @@ bridge.on('road-checkpoint',() => audio.play('ui'))
 bridge.on('race-result',(report:RaceReport) => {
   if (place !== 'race' || panel === 'result') return
   const reward = settleRace(state,report)
-  raceResult = {report,reward}
+  const finish: PlayerPosition | undefined = roadHud ? {scene:'road', x:roadHud.x, y:roadHud.y, angle:roadHud.angle} : undefined
+  raceResult = {report,reward,finish}
   if (reward.won) audio.play('success')
   state.position = {scene:'garage',...GARAGE_SPAWN}
   commit()

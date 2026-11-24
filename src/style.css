@@ -23,7 +23,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 button:disabled{opacity:.38;cursor:default}
 [hidden]{display:none!important}
 #canvas-host,#game-ui,#front,#modal-root,#toast-root{position:absolute;inset:0}
-#canvas-host{display:grid;place-items:center;background:#070a10}
+#canvas-host{background:#070a10}
 #canvas-host canvas{display:block;image-rendering:pixelated}
 #game-ui,#modal-root,#toast-root{pointer-events:none}
 #game-ui button,#modal-root>*{pointer-events:auto}
@@ -240,4 +240,11 @@ button:disabled{opacity:.38;cursor:default}
   .touch-controls .touch-actions{grid-template-columns:repeat(2,46px)}
   .touch-controls button{width:46px;height:46px}
   .drive-gauges{bottom:4%}
+  .coach{top:auto;bottom:calc(100% + 12px);width:min(285px,80%)}
+  .coach p{display:block}
+  .race-strip,.minimap,.station-tip{top:47px}
 }
+.design-look{align-self:start;position:sticky;top:0}
+.station-tip{position:absolute;right:1.7%;top:10.5%;max-width:min(215px,34%);background:#151923e8;color:#d7d6d8;border-right:2px solid #8bcac3;padding:8px 10px;text-align:right;font-size:clamp(.65rem,1.65vw,.84rem);line-height:1.18}
+.station-tip strong{display:block;font:700 1rem var(--condensed);color:#a5dfd6;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+@media(max-width:660px){.design-look{position:static}}

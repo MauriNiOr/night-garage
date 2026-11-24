@@ -893,6 +893,7 @@ export class GarageScene extends Phaser.Scene {
     if (this.canStand(this.player.x, this.player.y + dy * distance)) this.player.y += dy * distance
     this.facing = dx < 0 ? 1 : dx > 0 ? 2 : dy < 0 ? 3 : 0
     if (this.player.x !== previousX || this.player.y !== previousY) {
+      if (import.meta.env.DEV) bridge.emit('garage-coordinates', { x: this.player.x, y: this.player.y })
       this.walkingTime += dt
       this.player.setFrame(this.facing * 4 + Math.floor(this.walkingTime * 10) % 4)
       if (time - this.lastFootstep > 245) {
