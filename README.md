@@ -4,6 +4,8 @@ Hereda un taller abandonado, 2.500 € y un coche que apenas funciona. Recorre e
 
 Juego de conducción arcade y gestión de taller en pixel art. Funciona en el navegador con Phaser 3, TypeScript y Vite. Las partidas se guardan en IndexedDB y el audio se genera en el navegador.
 
+**[Jugar a NIGHT GARAGE en el navegador](https://maurinior.github.io/night-garage/)**
+
 ## Jugar en local
 
 Para trabajar con el código fuente necesitas Node.js 22 o posterior y npm.
@@ -27,7 +29,7 @@ Abre la dirección que imprime Vite. El código, las tipografías y los gráfico
 | I | Inventario | Inventario |
 | Escape | Pausa o cerrar panel | Pausa o cerrar panel |
 
-En pantallas táctiles aparecen controles sobre el juego. El tutorial se puede omitir y volver a consultar desde pausa. Las opciones de partida permiten guardar en el navegador, exportar un archivo JSON e importar una partida en otro dispositivo.
+En pantallas táctiles aparecen controles de dirección, interacción, nitro y freno de mano según la escena. El mando estándar admite la cruceta o la palanca izquierda y el botón A para interactuar. El tutorial se puede omitir y volver a consultar desde pausa. Las opciones de partida permiten guardar en el navegador, exportar un archivo JSON e importar una partida en otro dispositivo.
 
 ## Compilación y pruebas
 
@@ -41,8 +43,12 @@ npm run preview
 
 ## GitHub Pages
 
-El flujo [Publicar en GitHub Pages](.github/workflows/pages.yml) prueba, compila y publica el contenido de `dist/` con cada actualización de `main`. Selecciona **GitHub Actions** como **Source** en **Settings → Pages** del repositorio una vez. También se puede iniciar el flujo desde **Actions**. Su ejecución indica la dirección publicada en el entorno `github-pages`.
+El flujo [Publicar en GitHub Pages](.github/workflows/pages.yml) prueba, compila y publica el contenido de `dist/` con cada actualización de `main`. En **Settings → Pages**, la fuente **GitHub Actions** publica directamente la compilación. Si la fuente está configurada como rama, el flujo espera a que termine la publicación de esa rama antes de desplegar el juego compilado. También se puede iniciar el flujo desde **Actions**. Su ejecución indica la dirección publicada en el entorno `github-pages`.
 
 ## Estado y créditos
 
 Consulta [ROADMAP.md](ROADMAP.md) para conocer el alcance y las verificaciones de esta versión. Los recursos y dependencias se documentan en [CREDITS.md](CREDITS.md).
+
+## Capturas de pruebas
+
+[Portada](docs/capturas/portada.png) · [Taller inicial](docs/capturas/taller.png) · [Puerto Umbral](docs/capturas/puerto-umbral.png) · [Resultado del Sprint](docs/capturas/sprint.png) · [Taller ampliado](docs/capturas/taller-ampliado.png)

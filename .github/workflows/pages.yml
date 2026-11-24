@@ -34,12 +34,34 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Esperar a la publicación de rama si está activa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          site="repos/$GITHUB_REPOSITORY/pages"
+          if [[ "$(gh api "$site" --jq .build_type)" != legacy ]]; then
+            exit 0
+          fi
+
+          # A branch-based Pages run can overwrite the Vite artifact for the same commit.
+          for attempt in {1..30}; do
+            runs="repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA"
+            status="$(gh api "$runs" --jq '[.workflow_runs[] | select(.path == "dynamic/pages/pages-build-deployment")] | .[0].status // ""')"
+            if [[ "$status" == completed || ( -z "$status" && "$attempt" -ge 4 ) ]]; then
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "::error::La publicación de rama sigue activa. Vuelve a ejecutar este flujo cuando termine."
+          exit 1
       - name: Publicar la compilación
         id: deployment
         uses: actions/deploy-pages@v4

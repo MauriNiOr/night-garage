@@ -2,7 +2,7 @@
 
 ## Recursos del juego
 
-NIGHT GARAGE es un proyecto original desarrollado para este encargo. Los nombres de vehículos, las localizaciones y los personajes son ficticios. La dirección artística, los gráficos integrados en `public/art`, la programación y el diseño sonoro se prepararon para el proyecto. La música y los efectos generados mediante Web Audio no incorporan grabaciones, muestras ni música de terceros.
+NIGHT GARAGE es un proyecto original desarrollado para este encargo. Los nombres de vehículos, las localizaciones y los personajes son ficticios. La dirección artística, los gráficos integrados en `public/art`, la programación y el diseño sonoro se prepararon para el proyecto. Los PNG de portada y cinemática son ilustraciones generadas para el proyecto. Los sprites de vehículos, personajes y edificios se generan con los scripts de `tools/art`. La música y los efectos generados mediante Web Audio no incorporan grabaciones, muestras ni música de terceros.
 
 ## Bibliotecas y tipografías
 
