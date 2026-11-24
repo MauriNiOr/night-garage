@@ -296,7 +296,19 @@ async function launch(next: Exclude<Place,'menu'>, nextMode: Mode = 'free', resu
   tripDistanceReported = 0
   lastCoach = ''
   lastMap = 0
-  bridge.paused = false
+  gameUi.hidden = true
+  const sceneReady = new Promise<boolean>(resolve => {
+    let timer = 0
+    const unsubscribe = bridge.on(next === 'garage' ? 'garage:ready' : 'road-ready', () => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(true)
+    })
+    timer = window.setTimeout(() => {
+      unsubscribe()
+      resolve(false)
+    },20000)
+  })
   if (next === 'garage') {
     if (state.position.scene !== 'garage') state.position = {scene:'garage',...GARAGE_SPAWN}
     game.scene.start('garage',garageData())
@@ -305,6 +317,14 @@ async function launch(next: Exclude<Place,'menu'>, nextMode: Mode = 'free', resu
     if (next === 'road') state.position = {scene:'road',...initial}
     game.scene.start('road',{mode,tuning:carTuning(activeCar(state)),resume:next === 'road' ? resume : undefined})
   }
+  const sceneLoaded = await sceneReady
+  if (revision !== launchRevision) return
+  if (!sceneLoaded) {
+    showTitle()
+    toast('La escena no pudo cargarse. Puedes volver a abrir la partida.',true)
+    return
+  }
+  bridge.paused = false
   audio.scene(next)
   front.hidden = true
   renderHud()
@@ -938,7 +958,7 @@ function unlockAudio() {
 document.addEventListener('pointerdown',unlockAudio,true)
 document.addEventListener('keydown',unlockAudio,true)
 document.addEventListener('keydown',event => {
-  if (event.repeat) return
+  if (event.repeat || (place !== 'menu' && !front.hidden)) return
   if (event.code === 'Escape') {
     event.preventDefault()
     if (panel) closePanel()
