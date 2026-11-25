@@ -20,7 +20,7 @@ import {
   marketOffers, newGame, raceEntry, refuel, repairCar, selectCar, sellCar, settleRace,
   skipTutorial, resumeTutorial, startTournament, tournamentRace, upgradeWorkshop,
 } from './domain'
-import type { Car, CommandResult, GameState, PlayerPosition, RaceReport, RaceReward, Settings } from './domain'
+import type { Car, CommandResult, GameState, PlayerPosition, RaceRecord, RaceReport, RaceReward, Settings } from './domain'
 import { exportSave, importSave, listSlots, loadSlot, saveSlot } from './storage'
 import type { SlotSummary } from './storage'
 import { CITY_LEGEND, drawMap, type MapWorld } from './map'
@@ -648,17 +648,19 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
     }
     case 'statistics': {
       const records = Object.values(RACES).flatMap(race => {
+        const score = (record: RaceRecord) =>
+          race.mode === 'drift' ? number(record.drift)+' puntos' : time(record.time)
         const routes = RACE_COURSES[race.mode].flatMap((course,index) => {
           const best = state.stats.routeRecords[race.mode]?.[index]
-          return best ? [row(course.name,safe(race.name)+' · '+time(best.time))] : []
+          return best ? [row(course.name,safe(race.name)+' · '+score(best))] : []
         })
         const legacy = state.stats.records[race.mode]
-        return routes.length ? routes : legacy ? [row(race.name,time(legacy.time))] : []
+        return routes.length ? routes : legacy ? [row(race.name,score(legacy))] : []
       })
       return tone('Estadísticas','Piloto y taller','<div class="stats-block">'+stat('Reputación',number(state.rep))+stat('Experiencia',number(state.xp))+
         stat('Carreras',number(state.stats.races))+stat('Victorias',number(state.stats.wins))+stat('Reparaciones',number(state.stats.repairs))+
         stat('Kilómetros',number(Math.round(state.stats.distance/100)/10))+stat('Ingresos',euro(state.stats.earned))+
-        stat('Gastos',euro(state.stats.spent))+stat('Colección',state.collection.length+' / '+MODELS.length)+'</div><h3>Mejores tiempos</h3>'+
+        stat('Gastos',euro(state.stats.spent))+stat('Colección',state.collection.length+' / '+MODELS.length)+'</div><h3>Récords por recorrido</h3>'+
         rows(records.length ? records : [row('Sin tiempos registrados','')])+
         '<br><h3>Logros</h3>'+rows(ACHIEVEMENTS.map(item=>row(item.name,safe(item.description)+(state.achievements.includes(item.id)?' · <span class="highlight">Conseguido</span>':' · '+euro(item.reward))))))
     }
