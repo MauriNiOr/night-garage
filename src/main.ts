@@ -6,6 +6,7 @@ import '@fontsource/ibm-plex-mono/latin-400.css'
 import '@fontsource/ibm-plex-mono/latin-500.css'
 import '@fontsource/ibm-plex-mono/latin-600.css'
 import './style.css'
+import './story-guide.css'
 import { audio } from './audio'
 import { bridge } from './bridge'
 import {
@@ -19,12 +20,16 @@ import {
   marketOffers, newGame, raceEntry, refuel, repairCar, selectCar, sellCar, settleRace,
   skipTutorial, resumeTutorial, startTournament, tournamentRace, upgradeWorkshop,
 } from './domain'
-import type { Car, CommandResult, GameState, PlayerPosition, RaceReport, RaceReward, Settings } from './domain'
+import type { Car, CommandResult, GameState, PlayerPosition, RaceRecord, RaceReport, RaceReward, Settings } from './domain'
 import { exportSave, importSave, listSlots, loadSlot, saveSlot } from './storage'
 import type { SlotSummary } from './storage'
-import { drawMap } from './map'
+import { CITY_LEGEND, drawMap, type MapWorld } from './map'
+import { cityMap } from './geography'
+import { RACE_COURSES } from './courses'
+import { coachStep, drillCount, drivingDrill, guideContent } from './guide'
+import { storyChapters, storyFrame, storyLength, storyTitle } from './story'
 import { mountRepair, repairMarkup } from './repair'
-import { asset, button, carImage, euro, icon, number, rgb, safe, time } from './ui'
+import { asset, button, carImage, componentIcon, conditionGauge, euro, icon, number, rgb, safe, statIcon, time } from './ui'
 
 const app = document.querySelector<HTMLElement>('#app')!
 app.innerHTML = '<div id="canvas-host"></div><div id="game-ui" hidden></div><div id="front"></div><div id="modal-root"></div><div id="toast-root" aria-live="polite"></div><input id="import-file" type="file" accept=".json,application/json" hidden>'
@@ -49,22 +54,16 @@ const STATIONS = {
 type Station = keyof typeof STATIONS
 type Place = 'menu' | 'garage' | 'road' | 'race'
 type Mode = 'free' | RaceMode
-type KnownMap = { width: number; height: number; roads: {x:number; y:number; width:number; height:number}[]; player: {x:number; y:number; angle:number}; rivals: {x:number;y:number}[]; target?: {x:number;y:number}; next?: {x:number;y:number} }
 type RoadHUD = {
   mode: Mode; speed: number; nitro: number; damage: number; time: number; lap: number; laps: number;
   position: number; total: number; checkpoint: number; checkpoints: number; countdown: number | string;
-  zone: string; prompt: string; minimap: KnownMap; x: number; y: number; angle: number; drift: number;
-  throttle: number; slip: number; gear: number; distance?: number;
+  zone: string; prompt: string; minimap: MapWorld & { next?: { x: number; y: number } }; x: number; y: number; angle: number; drift: number;
+  throttle: number; slip: number; gear: number; distance?: number; courseName?: string; handbrake?: boolean; boosting?: boolean;
 }
 type Panel = 'slots' | 'new-slots' | 'overwrite' | 'settings' | 'pause' | 'inventory' | 'map' | 'missions' |
  'statistics' | 'lift' | 'diagnostic' | 'parts' | 'tools' | 'engine' | 'paint' | 'parking' | 'exit' | 'management' |
- 'market' | 'fuel' | 'races' | 'race-preview' | 'result' | 'abandon' | 'menu-confirm' | 'sell-confirm' | 'work' | 'job' | 'tutorial'
+ 'market' | 'fuel' | 'races' | 'race-preview' | 'result' | 'abandon' | 'menu-confirm' | 'sell-confirm' | 'work' | 'job' | 'tutorial' | 'story'
 
-const intro = [
-  { art: 'title-scene.png', title: 'Puerto Umbral', caption: 'La ciudad duerme de día. De noche, el puerto entero oye rugir los motores.', image: 'right center' },
-  { art: 'story-approach.png', title: 'Las llaves', caption: 'Tu tío te dejó las llaves de un taller, 2.500 € y una deuda con su viejo Kairo.', image: 'center' },
-  { art: 'story-discovery.png', title: 'Arranque en frío', caption: 'El coche sigue en el elevador. Mara dejó una nota en la caja de herramientas.', image: 'center' },
-]
 let state = newGame()
 const seenStations = new Set<Station>()
 let stationTipTimer = 0
@@ -77,12 +76,16 @@ let place: Place = 'menu'
 let runActive = false
 let showingIntro = false
 let introIndex = 0
+let storyChapter = 1
+let storyIndex = 0
+let guideTab = 0
+let drill: number | null = null
 let preparing = false
 let overwriteSlot = 1
 let mode: Mode = 'free'
 let pendingMode: RaceMode = 'sprint'
 let roadHud: RoadHUD | null = null
-let raceResult: { report: RaceReport; reward: RaceReward; finish?: PlayerPosition } | null = null
+let raceResult: { report: RaceReport; reward: RaceReward; finish?: PlayerPosition; courseName?: string } | null = null
 let currentJobId = ''
 let currentSaleId = ''
 let currentPart: ComponentKey = 'battery'
@@ -112,25 +115,23 @@ function renderTitle() {
   const canContinue = slots.some(Boolean)
   const rain = Array.from({length: 32}, (_, i) => '<i style="left:' + ((i*39)%160) + '%;--delay:' + (-i*.194) + 's;--duration:' + (.47+(i%7)*.089) + 's;--length:' + (47+i%11*6) + 'px"></i>').join('')
   front.innerHTML = '<main class="title-screen"><div class="title-image" style="background-image:url(&quot;' + asset('art/title-scene.png') + '&quot;)"></div><div class="title-rain" aria-hidden="true">' + rain +
-    '</div><header class="title-top"><span class="wordmark-small"><i class="mark">' + icon('wrench', 16) + '</i> NIGHT GARAGE</span><div class="game-buttons">' +
+    '</div><header class="title-top"><span class="wordmark-small"><i class="mark">' + icon('wrench', 16) + '</i> Puerto Umbral</span><div class="game-buttons">' +
     iconButton(settingsInMenu.music ? 'sound' : 'mute','audio-toggle','Activar o silenciar música') + iconButton('expand','fullscreen','Pantalla completa') +
-    '</div></header><section class="title-content"><p class="eyebrow">Puerto Umbral</p><h1 class="title-logo"><span>Night</span><span>Garage</span></h1><p class="title-tagline">Restaura coches de día. Gánate un nombre en las carreras de noche.</p><div class="title-actions">' +
+    '</div></header><section class="title-content"><h1 class="title-logo"><span>Night</span><span>Garage</span></h1><div class="title-actions">' +
     button('Nueva partida','new',{kind:canContinue?'secondary':'primary',icon:'play'}) +
     button('Continuar','continue',{kind:canContinue?'primary':'secondary',icon:'wrench',disabled:!canContinue}) +
     button('Partidas guardadas','open:slots',{kind:'quiet',icon:'folder'}) +
     button('Ajustes','open:settings',{kind:'quiet',icon:'settings'}) +
-    '</div></section><footer class="title-bottom"><span class="micro footer-info">Turno de noche</span><span class="micro">v0.1.0</span></footer></main>'
+    '</div></section></main>'
 }
 
 function renderIntro() {
   front.hidden = false
-  const slide = intro[introIndex]
-  front.innerHTML = '<section class="intro-screen"><div class="intro-image" style="background-position:' + slide.image + ';background-image:url(&quot;' + asset('art/' + slide.art) +
-    '&quot;)"></div><div class="intro-caption"><span class="eyebrow">Una noche en Puerto Umbral · ' + (introIndex+1) + '/' + intro.length + '</span><h1>' + slide.title +
-    '</h1><p>' + slide.caption + '</p><div class="intro-actions">' +
-    button(introIndex === intro.length-1 ? 'Entrar al taller' : 'Continuar', 'intro-next', {kind:'primary',icon:'play'}) +
-    '<button class="text-button" data-action="intro-skip">Omitir cinemática</button></div></div></section>'
-  requestAnimationFrame(() => front.querySelector('.intro-image')?.classList.add('rolling'))
+  const last = introIndex === storyLength(1)-1
+  front.innerHTML = '<main class="intro-screen story-intro">' + storyFrame(1,introIndex,
+    button(last ? 'Entrar al taller' : 'Continuar','intro-next',{kind:'primary',icon:'play'}) +
+    '<button class="text-button" data-action="intro-skip">Omitir cinemática</button>',true) + '</main>'
+  front.querySelector<HTMLButtonElement>('[data-action="intro-next"]')?.focus()
 }
 
 function iconButton(name: string, action: string, label: string) {
@@ -185,7 +186,10 @@ function resizeStage() {
   document.documentElement.style.setProperty('--stage-top', Math.round((window.innerHeight-540*ratio)/2)+'px')
   document.documentElement.style.setProperty('--stage-side', Math.round((window.innerWidth-960*ratio)/2)+'px')
 }
-window.addEventListener('resize', resizeStage)
+window.addEventListener('resize', () => {
+  resizeStage()
+  renderPanelMap()
+})
 resizeStage()
 
 async function refreshSlots() {
@@ -239,6 +243,8 @@ async function startSlot(slot: number, fresh: boolean) {
     if (fresh) state.settings = { ...settingsInMenu }
     selectedSlot = slot
     seenStations.clear()
+    guideTab = 0
+    drill = null
     runActive = true
     audio.levels(state.settings.music,state.settings.sfx)
     bridge.quality = state.settings.quality
@@ -313,9 +319,9 @@ async function launch(next: Exclude<Place,'menu'>, nextMode: Mode = 'free', resu
     if (state.position.scene !== 'garage') state.position = {scene:'garage',...GARAGE_SPAWN}
     game.scene.start('garage',garageData())
   } else {
-    const initial = resume ? {x:resume.x,y:resume.y,angle:resume.angle} : {x:500,y:455,angle:0}
+    const initial = resume ? {x:resume.x,y:resume.y,angle:resume.angle} : cityMap.garage
     if (next === 'road') state.position = {scene:'road',...initial}
-    game.scene.start('road',{mode,tuning:carTuning(activeCar(state)),resume:next === 'road' ? resume : undefined})
+    game.scene.start('road',{mode,tuning:carTuning(activeCar(state)),resume:next === 'road' ? resume : undefined, routeVariant:next === 'race' ? state.pendingRace?.variant : undefined})
   }
   const sceneLoaded = await sceneReady
   if (revision !== launchRevision) return
@@ -348,14 +354,23 @@ function renderHud() {
   gameUi.dataset.place = place
   if (import.meta.env.DEV) Object.assign(gameUi.dataset,{x:state.position.x,y:state.position.y,near:''})
   const isDriving = place === 'road' || place === 'race'
-  gameUi.innerHTML = '<div class="game-top"><div class="game-location"><i class="mark">' + icon(place === 'race' ? 'flag' : 'wrench',15) +
+  const raceDatum = (symbol: string, label: string, key: string, value = '—', labelKey?: string) =>
+    '<div class="race-datum">' + icon(symbol, 14) + '<small' + (labelKey ? ' data-hud="' + labelKey + '"' : '') + '>' + label +
+    '</small><strong data-hud="' + key + '">' + value + '</strong></div>'
+  gameUi.innerHTML = '<div class="game-top"><div class="game-location"><i class="mark">' + icon(place === 'race' ? 'flag' : place === 'road' ? 'location' : 'garage',15) +
     '</i><div><strong class="game-label" data-hud="location">' + (place === 'garage' ? 'Night Garage' : place === 'race' ? RACES[mode as RaceMode].subtitle : 'Puerto Umbral') +
     '</strong><small data-hud="detail">' + (place === 'garage' ? LEVELS[state.level-1].name : isDriving ? MODELS[activeCar(state).model].name : '') +
-    '</small></div></div><div class="game-bank"><strong data-hud="money"></strong><span data-hud="rep"></span></div><div class="game-buttons">' +
+    '</small></div></div><div class="game-bank"><div title="Dinero disponible">' + icon('wallet', 15) + '<strong data-hud="money"></strong></div><div title="Reputación">' + icon('medal', 14) + '<span data-hud="rep"></span></div></div><div class="game-buttons">' +
     iconButton('map','open:map','Mapa (M)') + iconButton('bag','open:inventory','Inventario (I)') +
     iconButton('pause','open:pause','Pausa (Escape)') +
     '</div></div><div id="coach" class="coach" hidden></div><aside class="station-tip" id="station-tip" hidden></aside><div class="prompt" data-hud="prompt" hidden></div>' +
-    (isDriving ? '<div class="race-strip" ' + (place === 'race' ? '' : 'hidden') + '><div><small>TIEMPO</small><strong data-hud="time">00:00.00</strong></div><div><small>PUESTO</small><strong data-hud="rank">—</strong></div><div><small>CONTROL</small><strong data-hud="cp">—</strong></div><div><small data-hud="extra-label">VUELTA</small><strong data-hud="extra">—</strong></div></div><div class="countdown" data-hud="countdown" hidden></div><canvas class="minimap" width="150" height="100" aria-label="Minimapa"></canvas><div class="drive-gauges"><strong class="speed-number"><span data-hud="speed">0</span><small>KM/H</small></strong><div class="drive-detail"><span>NITRO</span><progress data-hud="nitro" max="100" value="100"></progress></div><div class="drive-detail"><span data-hud="damage">Daños 0 %</span><span data-hud="gear">N</span></div></div>' : '') +
+    (isDriving ? '<div class="race-strip" ' + (place === 'race' ? '' : 'hidden') + '>' + raceDatum('clock','Tiempo','time','00:00.00') +
+      raceDatum('medal','Puesto','rank') + raceDatum('location','Control','cp') + raceDatum('route','Vuelta','extra','—','extra-label') +
+      '</div><div class="countdown" data-hud="countdown" hidden></div><canvas class="minimap" width="180" height="120" aria-label="Minimapa"></canvas>' +
+      '<div class="drive-gauges"><div class="dashboard-gauge" data-hud="speed-gauge"><div class="dashboard-readout"><strong class="speed-number"><span data-hud="speed">0</span><small>KM/H</small></strong>' +
+      '<span class="drive-gear" data-hud="gear" title="Marcha">N</span></div><div class="dashboard-arc" aria-hidden="true"></div></div>' +
+      '<div class="drive-detail" title="Nitro">' + icon('flash', 14) + '<progress data-hud="nitro" max="100" value="100" aria-label="Nitro"></progress></div>' +
+      '<div class="drive-detail" title="Daños">' + icon('warning', 14) + '<progress data-hud="damage-meter" max="100" value="0" aria-label="Daños"></progress><span class="visually-hidden" data-hud="damage">Daños 0 %</span></div></div>' : '') +
     '<div class="game-controls"><span class="key">WASD</span>' + (isDriving ? '<span>Conducir</span><span class="key">Espacio</span><span>Derrapar</span><span class="key">Shift</span><span>Nitro</span>' : '<span>Mover</span><span class="key">E</span><span>Interactuar</span>') +
     '</div><div class="touch-controls"><div>' + ['up','left','down','right'].map(direction => '<button class="touch-' + direction + '" data-touch="' + direction + '" aria-label="' + ({up:'Arriba',left:'Izquierda',down:'Abajo',right:'Derecha'})[direction as 'up'] + '">' + icon(direction,16) + '</button>').join('') +
     '</div><div class="touch-actions"><button data-touch="interact" aria-label="Interactuar">E</button>' +
@@ -376,19 +391,40 @@ function setHud(key: string, value: string) {
 
 function refreshBank() {
   setHud('money',euro(state.money))
-  setHud('rep',state.rep+' REP')
+  setHud('rep',String(state.rep))
+  hud('rep')?.setAttribute('aria-label',state.rep+' de reputación')
   if (place === 'garage') setHud('detail',LEVELS[state.level-1].name)
 }
 
 function refreshCoach() {
   const coach = document.querySelector<HTMLElement>('#coach')
   if (!coach) return
-  const step = TUTORIAL[state.tutorial.step]
-  const visible = !state.tutorial.skipped && !!step && place !== 'race'
-  coach.hidden = !visible
-  if (!visible || lastCoach === String(state.tutorial.step)) return
-  lastCoach = String(state.tutorial.step)
-  coach.innerHTML = '<span class="micro">Tutorial ' + (state.tutorial.step+1) + ' / ' + TUTORIAL.length + '</span><strong>' + step.title + '</strong><p>' + step.text + '</p><button class="text-button" data-action="skip-tutorial">Omitir tutorial</button>'
+  const practicing = place === 'road' && drill !== null
+  const showingStep = !state.tutorial.skipped && !!TUTORIAL[state.tutorial.step] && place !== 'race'
+  coach.hidden = !practicing && !showingStep
+  if (coach.hidden) return
+  const key = practicing ? 'practice:' + drill : String(state.tutorial.step)
+  if (key === lastCoach) return
+  lastCoach = key
+  coach.innerHTML = practicing ? drivingDrill(drill!) : coachStep(state.tutorial.step)
+}
+
+function updateDrill(data: RoadHUD) {
+  if (drill === null) return
+  const done = [
+    data.speed >= 25 && data.gear > 0,
+    data.gear < 0 && data.speed >= 8,
+    data.boosting && data.gear > 0,
+    data.handbrake && data.gear > 0 && data.speed > 25 && data.slip > .16,
+  ][drill]
+  if (!done) return
+  drill++
+  if (drill === drillCount) {
+    drill = null
+    audio.play('success')
+    toast('Práctica de conducción completada.')
+  }
+  refreshCoach()
 }
 
 function updatePrompt(label?: string) {
@@ -406,12 +442,16 @@ function updateRoad(data: RoadHUD) {
   const previousRoad = roadHud
   roadHud = data
   if (data.zone && place === 'road') setHud('location',data.zone)
+  if (data.courseName && place === 'race') setHud('detail',data.courseName)
   updatePrompt(data.prompt)
   setHud('speed',String(Math.round(data.speed)))
   setHud('damage','Daños ' + Math.round(data.damage) + ' %')
   setHud('gear',data.gear > 0 ? 'M' + data.gear : data.gear < 0 ? 'R' : 'N')
   const progress = hud('nitro') as HTMLProgressElement | null
   if (progress) progress.value = data.nitro
+  hud('speed-gauge')?.style.setProperty('--speed-fill',Math.min(100,data.speed/2.6)+'%')
+  const damage = hud('damage-meter') as HTMLProgressElement | null
+  if (damage) damage.value = data.damage
   setHud('time',time(data.time))
   setHud('rank',data.total > 1 ? data.position+'/'+data.total : '—')
   setHud('cp',Math.min(data.checkpoint,data.checkpoints)+'/'+data.checkpoints)
@@ -442,6 +482,7 @@ function updateRoad(data: RoadHUD) {
     trip.distance = data.distance !== undefined ? Math.max(0,data.distance-tripDistanceReported) : trip.distance + (previousRoad ? Math.hypot(previousRoad.x-data.x,previousRoad.y-data.y) : 0)
     trip.damage = Math.max(0,data.damage-tripDamageReported)
     state.position = { scene:'road', x:data.x, y:data.y, angle:data.angle }
+    updateDrill(data)
     if (data.speed > 8 && advanceTutorial(state,'drive')) { commit(); refreshCoach() }
   }
 }
@@ -455,11 +496,13 @@ function toast(message: string, error = false) {
   toastTimer = window.setTimeout(() => toastRoot.replaceChildren(), 3900)
 }
 
-function row(title: string, detail: string, action = '') {
-  return '<div class="row"><div class="row-label"><strong>' + safe(title) + '</strong>' + (detail ? '<p>' + detail + '</p>' : '') + '</div>' + action + '</div>'
+function row(title: string, detail: string, action = '', symbol?: string) {
+  return '<div class="row">' + (symbol ? '<span class="row-icon">' + icon(symbol, 19) + '</span>' : '') +
+    '<div class="row-label"><strong>' + safe(title) + '</strong>' + (detail ? '<p>' + detail + '</p>' : '') + '</div>' + action + '</div>'
 }
 function stat(label: string, value: string) {
-  return '<div class="stat"><span class="micro">' + safe(label) + '</span><strong>' + safe(value) + '</strong></div>'
+  return '<div class="stat"><span class="stat-icon">' + statIcon(label) + '</span><div><span class="micro">' + safe(label) +
+    '</span><strong>' + safe(value) + '</strong></div></div>'
 }
 function dialogue(speaker: string, message: string) {
   return '<div class="dialogue"><span class="face">' + icon('user',18) + '</span><div><strong>' + safe(speaker) + '</strong><p>' + safe(message) + '</p></div></div>'
@@ -467,7 +510,6 @@ function dialogue(speaker: string, message: string) {
 const actions = (...controls: string[]) => '<div class="actions">'+controls.join('')+'</div>'
 const rows = (content: string[]) => '<div class="rows">'+content.join('')+'</div>'
 const currentJob = () => JOBS.find(item => item.id === state.job?.id)
-const partStatus = (key: ComponentKey) => Math.round(activeCar(state).condition[key])+' %'
 
 function openPanel(next: Panel) {
   if (!panel) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -512,10 +554,7 @@ function renderModal(focus = true) {
     body + '</div></section></div>'
   const inner = modalRoot.querySelector<HTMLElement>('.sheet-body')!
   inner.scrollTop = previousTop
-  if (panel === 'map') {
-    const canvas = modalRoot.querySelector<HTMLCanvasElement>('.overview-map')!
-    drawMap(canvas,roadHud?.minimap,true)
-  }
+  renderPanelMap()
   if (panel === 'work') {
     repairCleanup()
     repairCleanup = mountRepair(inner,currentPart,state.level,quality => {
@@ -531,13 +570,34 @@ function renderModal(focus = true) {
   else if (focusValue) modalRoot.querySelector<HTMLElement>('['+focusAttribute+'="'+CSS.escape(focusValue)+'"]:not(:disabled)')?.focus({preventScroll:true})
 }
 
+function renderPanelMap() {
+  const overview = modalRoot.querySelector<HTMLCanvasElement>('.overview-map')
+  if (overview) drawMap(overview,roadHud?.minimap,true)
+  const preview = modalRoot.querySelector<HTMLCanvasElement>('.course-preview')
+  if (preview) {
+    const course = upcomingCourse()
+    const [start, next] = course.points
+    const angle = Math.atan2(next.y-start.y,next.x-start.x)*180/Math.PI
+    drawMap(preview,{...cityMap,player:{...start,angle},rivals:[],course:course.points},true)
+  }
+}
+
+function upcomingCourse() {
+  const variant = state.pendingRace?.mode === pendingMode ? state.pendingRace.variant : state.nextRaceVariants[pendingMode]
+  const courses = RACE_COURSES[pendingMode]
+  return courses[variant ?? 0] ?? courses[0]
+}
+
 function panelContent(target: Panel): {title:string;category:string;body:string;narrow?:boolean} {
   const car = activeCar(state)
   const model = MODELS[car.model]
   const tone = (title:string,category:string,body:string,narrow=false) => ({title,category,body,narrow})
   const open = (label:string, panel: Panel, symbol?:string) => button(label,'open:'+panel,{icon:symbol})
-  const inspect = () => rows(COMPONENT_KEYS.map(key => row(COMPONENTS[key].name,
-    '<span class="' + (car.condition[key] < 35 ? 'highlight' : 'micro') + '">' + partStatus(key) + '</span> · ' + safe(COMPONENTS[key].description))))
+  const inspect = () => '<div class="component-grid">' + COMPONENT_KEYS.map(key => {
+    const part = COMPONENTS[key]
+    return row(part.name,conditionGauge(car.condition[key],part.name),undefined,componentIcon[key])
+  }).join('') + '</div>'
+  const stock = (key: ComponentKey) => '<span class="stock-count" title="Recambios en inventario">' + icon('box', 13) + ' × ' + state.parts[key] + '</span>'
 
   switch (target) {
     case 'slots':
@@ -570,22 +630,40 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
         (place === 'race' ? open('Abandonar carrera','abandon','back') : open('Menú principal','menu-confirm','back'))+'</div>',true)
     case 'inventory':
       return tone('Inventario','Recambios y llaves',rows(COMPONENT_KEYS.filter(key => state.parts[key] > 0).map(key => row(COMPONENTS[key].part,
-        '<span class="micro">'+state.parts[key]+' en el almacén</span>'))) + (COMPONENT_KEYS.every(key => !state.parts[key]) ? '<p>Aún no tienes recambios. El almacén del taller y Overdrive venden piezas.</p>' : '') +
-        '<br><h3>Vehículo activo</h3>'+carImage(car.model,car.color,car.mods)+row(model.name,number(Math.round(car.km))+' km · Depósito '+Math.floor(car.fuel)+' %'),true)
+        stock(key),undefined,componentIcon[key]))) + (COMPONENT_KEYS.every(key => !state.parts[key]) ? '<p class="empty-inventory">' + icon('box', 26) + 'Compra recambios en el almacén o en Overdrive.</p>' : '') +
+        '<h3>Vehículo activo</h3>'+carImage(car.model,car.color,car.mods)+row(model.name,number(Math.round(car.km))+' km · Depósito '+Math.floor(car.fuel)+' %',undefined,'car'),true)
     case 'map':
-      return tone('Puerto Umbral','Mapa de la ciudad','<canvas class="overview-map" width="720" height="480" aria-label="Mapa de Puerto Umbral"></canvas><p class="map-key">Tu posición · Carreras, taller y comercios</p>')
+      return tone('Puerto Umbral','Mapa de la ciudad','<canvas class="overview-map" width="900" height="570" aria-label="Mapa de Puerto Umbral"></canvas><ul class="city-key">' +
+        CITY_LEGEND.map(item => '<li><i style="--pin:'+item.color+'"></i>'+safe(item.name)+'</li>').join('')+'</ul>')
     case 'missions':
-      return tone('Misiones','Historia y encargos',dialogue(STORY[state.level-1].speaker,STORY[state.level-1].line)+
-        '<div class="split"><div class="card"><h3>Capítulo '+state.level+'</h3><p>'+safe(LEVELS[state.level-1].description)+'</p></div><div class="card"><h3>Encargo activo</h3><p>'+
-        (currentJob() ? safe(currentJob()!.name)+(state.job?.ready?' · Listo para entregar':' · '+safe(COMPONENTS[currentJob()!.component].part)) : 'Habla con los clientes desde el ordenador del taller.')+'</p></div></div>' +
-        (state.tutorial.step < TUTORIAL.length ? '<br>' + open('Consultar tutorial','tutorial') : ''))
-    case 'statistics':
+      return tone('Misiones','Historia y encargos',storyChapters(state.level) +
+        '<div class="card"><h3>Encargo activo</h3><p>' +
+        (currentJob() ? safe(currentJob()!.name)+(state.job?.ready?' · Listo para entregar':' · '+safe(COMPONENTS[currentJob()!.component].part)) : 'Consulta los encargos en el ordenador del taller.') +
+        '</p></div>' + actions(open('Consultar tutorial','tutorial','wrench')))
+    case 'story': {
+      const last = storyIndex === storyLength(storyChapter)-1
+      return tone(storyTitle(storyChapter),'Capítulo '+storyChapter,storyFrame(storyChapter,storyIndex,
+        button(last ? 'Volver a misiones' : 'Siguiente escena',last ? 'open:missions' : 'story-next',{kind:'primary',icon:last?'back':'play'}) +
+        (storyIndex > 0 ? button('Escena anterior','story-previous',{icon:'left'}) : '')))
+    }
+    case 'statistics': {
+      const records = Object.values(RACES).flatMap(race => {
+        const score = (record: RaceRecord) =>
+          race.mode === 'drift' ? number(record.drift)+' puntos' : time(record.time)
+        const routes = RACE_COURSES[race.mode].flatMap((course,index) => {
+          const best = state.stats.routeRecords[race.mode]?.[index]
+          return best ? [row(course.name,safe(race.name)+' · '+score(best))] : []
+        })
+        const legacy = state.stats.records[race.mode]
+        return routes.length ? routes : legacy ? [row(race.name,score(legacy))] : []
+      })
       return tone('Estadísticas','Piloto y taller','<div class="stats-block">'+stat('Reputación',number(state.rep))+stat('Experiencia',number(state.xp))+
         stat('Carreras',number(state.stats.races))+stat('Victorias',number(state.stats.wins))+stat('Reparaciones',number(state.stats.repairs))+
         stat('Kilómetros',number(Math.round(state.stats.distance/100)/10))+stat('Ingresos',euro(state.stats.earned))+
-        stat('Gastos',euro(state.stats.spent))+stat('Colección',state.collection.length+' / '+MODELS.length)+'</div><h3>Mejores tiempos</h3>'+
-        rows(Object.values(RACES).filter(race => state.stats.records[race.mode]).map(race => row(race.name,time(state.stats.records[race.mode]!.time))))+
+        stat('Gastos',euro(state.stats.spent))+stat('Colección',state.collection.length+' / '+MODELS.length)+'</div><h3>Récords por recorrido</h3>'+
+        rows(records.length ? records : [row('Sin tiempos registrados','')])+
         '<br><h3>Logros</h3>'+rows(ACHIEVEMENTS.map(item=>row(item.name,safe(item.description)+(state.achievements.includes(item.id)?' · <span class="highlight">Conseguido</span>':' · '+euro(item.reward))))))
+    }
     case 'lift':
       return tone(model.name,'Elevador · '+model.kind,carImage(car.model,car.color,car.mods)+
         '<div class="stats-block">'+stat('Km',number(Math.round(car.km)))+stat('Potencia',model.power+' CV')+stat('Tracción',model.drive)+'</div>'+
@@ -602,23 +680,24 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
       if (TUTORIAL[state.tutorial.step]?.event === 'buy') keys.sort((a,b) => Number(b === 'battery') - Number(a === 'battery'))
       return tone('Recambios','Almacén',rows(keys.map(key => {
         const part = COMPONENTS[key]
-        return row(part.part,safe(part.description)+' <span class="micro">Stock '+state.parts[key]+'</span>',
-          button(state.level < part.minLevel ? 'Nivel '+part.minLevel : euro(part.price),'buy-part:'+key,{kind:key === 'battery' && state.tutorial.step === 4 ? 'primary':'secondary',
-            disabled:state.level < part.minLevel || state.money < part.price,title:'Comprar '+part.part}))
+        return row(part.part,stock(key),button(state.level < part.minLevel ? 'Nivel '+part.minLevel : euro(part.price),'buy-part:'+key,
+          {kind:key === 'battery' && TUTORIAL[state.tutorial.step]?.event === 'buy' ? 'primary':'secondary',
+            disabled:state.level < part.minLevel || state.money < part.price,title:'Comprar '+part.part,icon:state.level < part.minLevel ? 'lock' : 'plus'}),componentIcon[key])
       })))
     }
     case 'tools':
     case 'engine': {
       const job = currentJob()
       const allKeys = target === 'engine' ? ['engine','oil','turbo','gearbox','suspension'] as const : COMPONENT_KEYS
-      const priority = state.tutorial.step === 5 ? 'battery' : job?.component
+      const priority = TUTORIAL[state.tutorial.step]?.event === 'repair' ? 'battery' : job?.component
       const keys = [...allKeys].sort((a,b)=>Number(b===priority)-Number(a===priority))
       return tone(target === 'engine' ? 'Banco de motores' : 'Banco de herramientas','Reparación',
         (job && !state.job?.ready ? dialogue(job.client,job.line) : '')+rows(keys.map(key => {
           const customer = job?.component === key && !state.job?.ready
-          return row(COMPONENTS[key].name, (customer ? 'Coche de '+safe(job!.client) : 'Estado '+partStatus(key))+' · Recambios '+state.parts[key],
+          return row(COMPONENTS[key].name, '<span class="repair-row-status">' +
+            (customer ? 'Coche de '+safe(job!.client) : conditionGauge(car.condition[key],COMPONENTS[key].name)) + stock(key) + '</span>',
             button(state.parts[key] ? 'Montar' : 'Sin recambio','work:'+key,{kind:key === priority ? 'primary':'secondary',
-              disabled:!state.parts[key] || (!customer && car.condition[key] >= 100),title:'Reparar '+COMPONENTS[key].name}))
+              disabled:!state.parts[key] || (!customer && car.condition[key] >= 100),title:'Reparar '+COMPONENTS[key].name,icon:'wrench'}),componentIcon[key])
         })))
     }
     case 'paint': {
@@ -659,7 +738,7 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
       const level = LEVELS[state.level-1]
       const next = LEVELS[state.level]
       const job = currentJob()
-      return tone('Gestión del taller','Ordenador de Night Garage',dialogue(STORY[state.level-1].speaker,STORY[state.level-1].line)+
+      return tone('Gestión del taller','Ordenador de Night Garage',actions(button('Ver capítulo '+state.level,'story:'+state.level,{icon:'play'}))+
         '<div class="stats-block">'+stat('Caja',euro(state.money))+stat('Reputación',number(state.rep))+stat('Nivel',state.level+' / 5')+'</div>'+
         '<div class="split"><div class="card"><h3>'+safe(level.name)+'</h3><p>'+safe(next ? next.description : level.description)+'</p>'+
         (next ? button('Ampliar taller · '+euro(next.cost),'upgrade',{kind:'primary',disabled:state.money<next.cost || state.rep<next.rep,icon:'wrench'})+
@@ -678,12 +757,16 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
     case 'market':
       return tone('Mercado de segunda mano','Cobalto Motors','<div class="market-list">'+marketOffers(state).map(offer => {
         const details = MODELS[offer.model]
-        return '<article class="card">'+carImage(offer.model,offer.car.color)+'<h3>'+safe(details.name)+'</h3><p class="micro">'+safe(details.kind)+'</p><p>'+number(Math.round(offer.car.km))+
-          ' km · '+details.drive+' · '+details.power+' CV<br>'+details.weight+' kg · '+details.maxSpeed+' km/h · 0–100 '+details.acceleration+
-          ' s<br>Motor '+Math.round(offer.car.condition.engine)+' % · Chapa '+Math.round(offer.car.condition.body)+' %<br>Valor '+euro(carValue(offer.car))+
-          (offer.special ? '<br><span class="highlight">Oferta · −'+offer.discount+' %</span>' : '')+'</p>'+
-          button(details.minLevel>state.level ? 'Nivel '+details.minLevel : 'Comprar · '+euro(offer.price),'buy-car:'+offer.id,
-            {kind:'primary',disabled:details.minLevel>state.level || state.money<offer.price})+'</article>'
+        const locked = details.minLevel > state.level
+        return '<article class="card market-car"><div class="market-look">'+carImage(offer.model,offer.car.color)+
+          (offer.special ? '<span class="market-discount" title="Descuento">−'+offer.discount+' %</span>' : '')+'</div><h3>'+safe(details.name)+
+          '</h3><p class="micro">'+safe(details.kind)+'</p><div class="market-metrics">'+stat('Km',number(Math.round(offer.car.km)))+
+          stat('Tracción',details.drive)+stat('Potencia',details.power+' CV')+stat('Peso',details.weight+' kg')+
+          stat('Velocidad',details.maxSpeed+' km/h')+stat('0–100',details.acceleration+' s')+'</div>'+
+          '<div class="market-condition"><span>Motor</span>'+conditionGauge(offer.car.condition.engine,'Motor')+'<span>Chapa</span>'+conditionGauge(offer.car.condition.body,'Chapa')+'</div>'+
+          '<p class="market-value">Valor <strong>'+euro(carValue(offer.car))+'</strong></p>'+
+          button(locked ? 'Nivel '+details.minLevel : 'Comprar · '+euro(offer.price),'buy-car:'+offer.id,
+            {kind:'primary',disabled:locked || state.money<offer.price,icon:locked?'lock':'wallet'})+'</article>'
       }).join('')+'</div>')
     case 'fuel':
       return tone('Repostar','Combustibles Nox','<div class="stats-block">'+stat('Depósito',Math.floor(car.fuel)+' %')+stat('Hasta lleno',euro(fuelPrice(state)))+'</div>'+
@@ -699,18 +782,20 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
     }
     case 'race-preview': {
       const race = RACES[pendingMode]
-      const rival = pendingMode==='sprint' ? dialogue('Mara','Sigue los controles de luz. Levanta antes del cruce y deja que el Kairo vuelva a agarrar.') : ''
-      return tone(race.subtitle,race.name,carImage(car.model,car.color,car.mods)+'<p>'+safe(race.description)+'</p>'+rival+
+      const course = upcomingCourse()
+      return tone(race.subtitle,race.name,'<div class="course-header">'+icon('route',22)+'<strong>'+safe(course.name)+'</strong></div>'+
+        '<canvas class="course-preview" width="720" height="360" aria-label="Recorrido '+safe(course.name)+'"></canvas><p>'+safe(race.description)+'</p>'+
         '<div class="stats-block">'+stat('Inscripción',tournamentRace(state)===pendingMode?'Incluida':euro(race.fee))+stat('Premio máximo',euro(race.prize))+
         stat('Nivel',String(race.minLevel))+'</div>'+actions(button('Inscribirse y correr','start-race',{kind:'primary',icon:'flag',disabled:race.minLevel>state.level}),
-          open('Calendario','races')),true)
+          open('Calendario','races')))
     }
     case 'result': {
       if (!raceResult) return tone('Resultados','Puerto Umbral','',true)
-      const { report,reward } = raceResult
+      const { report,reward,courseName } = raceResult
       const race = RACES[report.mode]
-      return tone(!reward.completed ? 'Tiempo agotado' : reward.won ? 'Victoria' : 'Meta cruzada',race.subtitle,
-        '<div class="result-score"><b>'+report.position+'º</b><div><strong>'+safe(model.name)+'</strong><p>'+safe(reward.personalBest?'Nuevo mejor resultado':'Carrera completada')+'</p></div></div>'+
+      return tone(!reward.completed ? 'Tiempo agotado' : reward.won ? 'Victoria' : 'Meta cruzada',courseName ?? race.subtitle,
+        '<div class="result-score"><b>'+report.position+'º</b><div><strong>'+safe(model.name)+'</strong>'+
+        (reward.personalBest?'<p>Nuevo mejor resultado</p>':'')+'</div><i class="result-icon">'+icon(reward.won?'trophy':'flag',70)+'</i></div>'+
         '<div class="stats-block">'+stat('Crono',time(report.time))+stat('Premio','+'+euro(reward.payout))+stat('Reputación','+'+reward.rep)+
         stat('Daños',Math.round(report.damage)+' %')+stat('Derrape',number(Math.round(report.drift)))+stat('Saldo',euro(state.money))+'</div>'+
         (reward.tournamentFinished?'<p>Copa de Medianoche completada.</p>':'')+
@@ -726,10 +811,7 @@ function panelContent(target: Panel): {title:string;category:string;body:string;
     case 'work':
       return tone(COMPONENTS[currentPart].name,'Reparación · Estación de trabajo',repairMarkup(currentPart),true)
     case 'tutorial':
-      return tone('Guía de taller','Primer turno',
-        '<ol class="todos">'+TUTORIAL.map((step,index)=>'<li class="'+(index<state.tutorial.step?'done':'')+'">'+icon(index<state.tutorial.step?'check':'flag',15)+
-          '<div><strong>'+step.title+'</strong><div class="how-to">'+step.text+'</div></div></li>').join('')+'</ol><br>'+
-        actions(button(state.tutorial.skipped?'Activar guía':'Ocultar guía',state.tutorial.skipped?'resume-tutorial':'skip-tutorial',{icon:'wrench'})),true)
+      return tone('Guía de taller','Tutorial',guideContent(guideTab,state.tutorial.step,state.tutorial.skipped,place === 'road'))
   }
 }
 
@@ -816,7 +898,7 @@ function dispatch(action: string) {
     }
     case 'load-slot': void startSlot(Number(argument),false); return
     case 'intro-next':
-      if (introIndex < intro.length-1) { introIndex++; renderIntro() }
+      if (introIndex < storyLength(1)-1) { introIndex++; renderIntro() }
       else void launch('garage')
       return
     case 'intro-skip': void launch('garage'); return
@@ -832,6 +914,35 @@ function dispatch(action: string) {
       else toast('Pantalla completa no disponible.',true)
       return
     }
+    case 'story': {
+      const chapter = Number(argument)
+      if (Number.isInteger(chapter) && chapter >= 1 && chapter <= state.level) {
+        storyChapter = chapter
+        storyIndex = 0
+        openPanel('story')
+      }
+      return
+    }
+    case 'story-next':
+    case 'story-previous':
+      storyIndex = Math.max(0,Math.min(storyLength(storyChapter)-1,storyIndex+(what === 'story-next' ? 1 : -1)))
+      renderModal()
+      return
+    case 'guide':
+      guideTab = Number(argument)
+      renderModal(false)
+      return
+    case 'guide-practice':
+      if (place === 'race') { toast('Puedes practicar en conducción libre.'); return }
+      drill = 0
+      closePanel()
+      refreshCoach()
+      if (place === 'garage') toast('Sal por el portón para empezar la práctica.')
+      return
+    case 'guide-stop':
+      drill = null
+      refreshCoach()
+      return
     case 'skip-tutorial':
       applied(skipTutorial(state))
       if (panel === 'tutorial') renderModal(false)
@@ -1052,7 +1163,7 @@ bridge.on('race-result',(report:RaceReport) => {
   if (place !== 'race' || panel === 'result') return
   const reward = settleRace(state,report)
   const finish: PlayerPosition | undefined = roadHud ? {scene:'road', x:roadHud.x, y:roadHud.y, angle:roadHud.angle} : undefined
-  raceResult = {report,reward,finish}
+  raceResult = {report,reward,finish,courseName:roadHud?.courseName}
   if (reward.won) audio.play('success')
   state.position = {scene:'garage',...GARAGE_SPAWN}
   commit()

@@ -1,4 +1,4 @@
-import { cityMap } from './geography';
+import { cityMap, COAST, NEW_DISTRICTS } from './geography';
 
 type Point = { x: number; y: number };
 type Rect = Point & { width: number; height: number };
@@ -15,8 +15,8 @@ export type MapWorld = {
 
 export const CITY_LEGEND = [
   { name: 'Tu coche', color: '#f4faee' },
-  { name: 'Taller', color: '#ff8b54' },
-  { name: 'Carreras', color: '#ffa873' },
+  { name: 'Taller', color: '#ff3e55' },
+  { name: 'Carreras', color: '#ff7e91' },
   { name: 'Servicios', color: '#87d3cc' },
   { name: 'Destino o control', color: '#f9d388' },
   { name: 'Tráfico y rivales', color: '#e7847d' },
@@ -50,13 +50,19 @@ export function drawMap(canvas: HTMLCanvasElement, world: MapWorld = fallback, l
   const ctx = canvas.getContext('2d');
   if (!ctx || width < 10 || height < 10) return;
   const padding = large ? 12 : 5;
-  const scale = Math.min((width - padding * 2) / world.width, (height - padding * 2) / world.height);
+  const scale = Math.min((width - padding * 2) / (large ? world.width : 2050), (height - padding * 2) / (large ? world.height : 1420));
   if (!Number.isFinite(scale) || scale <= 0) return;
-  const tx = (width - world.width * scale) / 2;
-  const ty = (height - world.height * scale) / 2;
+  const mapOffset = (screenSize: number, worldSize: number, player: number) => {
+    const worldSpan = screenSize / scale;
+    if (large || worldSpan >= worldSize) return (screenSize - worldSize * scale) / 2;
+    const section = Math.round((player - worldSpan / 2) / 96) * 96;
+    return -Math.max(0, Math.min(worldSize - worldSpan, section)) * scale;
+  };
+  const tx = mapOffset(width, world.width, world.player.x);
+  const ty = mapOffset(height, world.height, world.player.y);
   const project: Projection = { s: scale, x: x => tx + x * scale, y: y => ty + y * scale };
 
-  const key = `${width}/${height}/${ratio}/${world.width}/${world.height}/${large}`;
+  const key = `${width}/${height}/${ratio}/${world.width}/${world.height}/${large}/${tx}/${ty}`;
   let base = bases.get(canvas);
   if (!base || base.key !== key || base.roads !== world.roads) {
     const image = canvas.ownerDocument.createElement('canvas');
@@ -79,25 +85,60 @@ export function drawMap(canvas: HTMLCanvasElement, world: MapWorld = fallback, l
     ctx.lineJoin = 'round';
     ctx.moveTo(project.x(world.course[0].x), project.y(world.course[0].y));
     for (const point of world.course.slice(1)) ctx.lineTo(project.x(point.x), project.y(point.y));
-    ctx.strokeStyle = '#202638';
-    ctx.lineWidth = large ? 5 : 2.8;
+    ctx.strokeStyle = '#4b1727';
+    ctx.lineWidth = large ? 7 : 3.2;
     ctx.stroke();
-    ctx.strokeStyle = '#f89963';
-    ctx.lineWidth = large ? 2.1 : 1.3;
+    ctx.strokeStyle = '#ff667d';
+    ctx.lineWidth = large ? 2.8 : 1.5;
     ctx.stroke();
+    if (large) {
+      for (const point of world.course.slice(1, -1)) {
+        ctx.beginPath();
+        ctx.fillStyle = '#ffd8df';
+        ctx.arc(project.x(point.x), project.y(point.y), 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const finish = world.course[world.course.length - 1];
+      ctx.fillStyle = '#1e121b';
+      const left = project.x(finish.x) - 4, top = project.y(finish.y) - 4;
+      ctx.fillRect(left - 1, top - 1, 10, 10);
+      ctx.fillStyle = '#ffe1e7';
+      ctx.fillRect(left, top, 4, 4);
+      ctx.fillRect(left + 4, top + 4, 4, 4);
+    }
   }
   if (large) drawLabels(ctx, width, height, project, world);
 
   if (world.target) {
     const x = project.x(world.target.x);
     const y = project.y(world.target.y);
-    const radius = large ? 9 : 4.5;
-    ctx.beginPath();
-    ctx.strokeStyle = '#f4c775';
-    ctx.lineWidth = 1.5;
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.stroke();
-    diamond(ctx, x, y, large ? 4 : 2, '#ffe3aa');
+    if (!large && (x < 6 || x > width - 6 || y < 6 || y > height - 6)) {
+      const px = Math.max(7, Math.min(width - 7, project.x(world.player.x)));
+      const py = Math.max(7, Math.min(height - 7, project.y(world.player.y)));
+      const dx = x - px, dy = y - py;
+      const edgeX = dx > 0 ? width - 7 : 7;
+      const edgeY = dy > 0 ? height - 7 : 7;
+      const step = Math.min(dx ? (edgeX - px) / dx : Infinity, dy ? (edgeY - py) / dy : Infinity);
+      ctx.save();
+      ctx.translate(px + dx * step, py + dy * step);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.beginPath();
+      ctx.moveTo(3.5, 0);
+      ctx.lineTo(-2.5, -3);
+      ctx.lineTo(-2.5, 3);
+      ctx.closePath();
+      ctx.fillStyle = '#ffe3aa';
+      ctx.fill();
+      ctx.restore();
+    } else {
+      const radius = large ? 9 : 4.5;
+      ctx.beginPath();
+      ctx.strokeStyle = '#f4c775';
+      ctx.lineWidth = 1.5;
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      diamond(ctx, x, y, large ? 4 : 2, '#ffe3aa');
+    }
   }
 
   for (const rival of world.rivals) {
@@ -126,24 +167,30 @@ export function drawMap(canvas: HTMLCanvasElement, world: MapWorld = fallback, l
 }
 
 function drawBase(ctx: CanvasRenderingContext2D, width: number, height: number, world: MapWorld, p: Projection, large: boolean): void {
-  ctx.fillStyle = '#101923';
+  ctx.fillStyle = '#111018';
   ctx.fillRect(0, 0, width, height);
   const grid = large ? 16 : 8;
-  ctx.fillStyle = '#2633426b';
+  ctx.fillStyle = '#3430436b';
   for (let x = grid; x < width; x += grid) ctx.fillRect(x, 0, 1, height);
   for (let y = grid; y < height; y += grid) ctx.fillRect(0, y, width, 1);
 
-  const shore = p.x(world.width * 3375 / 3660);
-  ctx.fillStyle = '#12303c';
+  const shore = p.x(COAST.x);
+  ctx.fillStyle = '#182d3a';
   ctx.fillRect(shore, p.y(0), p.x(world.width) - shore, world.height * p.s);
-  ctx.fillStyle = '#456572';
+  ctx.fillStyle = '#546372';
   ctx.fillRect(shore, p.y(0), 1, world.height * p.s);
-  ctx.fillStyle = '#3d545d';
-  for (const y of [450, 850, 1400, 1900]) ctx.fillRect(shore, p.y(y), p.s * 240, Math.max(1, p.s * 70));
+  ctx.fillStyle = '#4c5164';
+  for (const y of COAST.piers) ctx.fillRect(shore, p.y(y), p.s * 240, Math.max(1, p.s * 70));
+  if (large) {
+    ctx.fillStyle = '#7299a51f';
+    for (let y = 150; y < world.height - 100; y += 120) {
+      const shift = (y % 360) / 5;
+      ctx.fillRect(shore + p.s * (70 + shift), p.y(y), p.s * 118, 1);
+    }
+  }
 
   const horizontal = world.roads.filter(road => road.width > road.height);
   const vertical = world.roads.filter(road => road.width <= road.height);
-  ctx.fillStyle = '#1c2934';
   for (let col = 1; col < vertical.length; col++) {
     for (let row = 1; row < horizontal.length; row++) {
       const before = vertical[col - 1];
@@ -153,16 +200,28 @@ function drawBase(ctx: CanvasRenderingContext2D, width: number, height: number, 
       const width = vertical[col].x - left - 34;
       const height = horizontal[row].y - top - 37;
       if (width < 100 || height < 90) continue;
-      ctx.fillStyle = (col === 3 && row === 2) || (col === 4 && row === 3) ? '#203c3c' : '#1c2934';
+      const park = (col === 3 && row === 2) || (col === 4 && row === 3) || (col === 6 && row >= 4);
+      const docks = col >= 7;
+      ctx.fillStyle = park ? '#203337' : docks ? '#35202d' : '#252430';
       ctx.fillRect(p.x(left), p.y(top), width * p.s, height * p.s);
       if (!large) continue;
-      ctx.fillStyle = '#2d3a45';
-      ctx.fillRect(p.x(left + width * .13), p.y(top + height * .18), width * .33 * p.s, height * .60 * p.s);
-      ctx.fillRect(p.x(left + width * .57), p.y(top + height * .24), width * .31 * p.s, height * .51 * p.s);
+      if (park) {
+        ctx.strokeStyle = '#668b78';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(p.x(left + width * .12), p.y(top + height * .24), width * .76 * p.s, height * .52 * p.s);
+        ctx.fillStyle = '#48625f';
+        for (const fraction of [.24, .5, .76]) {
+          ctx.fillRect(p.x(left + width * fraction), p.y(top + height * .15), 2, height * .7 * p.s);
+        }
+      } else {
+        ctx.fillStyle = docks ? '#593440' : '#3c3b49';
+        ctx.fillRect(p.x(left + width * .13), p.y(top + height * .18), width * .33 * p.s, height * .60 * p.s);
+        ctx.fillRect(p.x(left + width * .57), p.y(top + height * .24), width * .31 * p.s, height * .51 * p.s);
+      }
     }
   }
 
-  for (const [color, edge] of [['#111b24', 1.3], ['#4d5d68', 0]] as const) {
+  for (const [color, edge] of [['#16131f', 1.3], ['#555362', 0]] as const) {
     ctx.fillStyle = color;
     for (const road of world.roads) {
       ctx.fillRect(p.x(road.x) - edge, p.y(road.y) - edge, road.width * p.s + edge * 2, road.height * p.s + edge * 2);
@@ -198,9 +257,9 @@ function drawBase(ctx: CanvasRenderingContext2D, width: number, height: number, 
       ctx.lineTo(x + size, y + size);
       ctx.lineTo(x - size, y + size);
       ctx.closePath();
-      ctx.fillStyle = '#ff8b54';
+      ctx.fillStyle = '#ff3e55';
       ctx.fill();
-    } else if (zone.race) diamond(ctx, x, y, large ? 3.7 : 1.8, '#ffa873');
+    } else if (zone.race) diamond(ctx, x, y, large ? 3.7 : 1.8, '#ff7e91');
     else {
       ctx.fillStyle = '#87d3cc';
       ctx.fillRect(x - 3, y - 3, 6, 6);
@@ -211,6 +270,17 @@ function drawBase(ctx: CanvasRenderingContext2D, width: number, height: number, 
   ctx.textBaseline = 'top';
   ctx.fillStyle = '#acc5cc';
   ctx.fillText('N', large ? 10 : 4, large ? 8 : 3);
+  if (large) {
+    ctx.strokeStyle = '#acc5cc';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(14, 21);
+    ctx.lineTo(14, 36);
+    ctx.moveTo(10, 27);
+    ctx.lineTo(14, 21);
+    ctx.lineTo(18, 27);
+    ctx.stroke();
+  }
 }
 
 function drawLabels(ctx: CanvasRenderingContext2D, width: number, height: number, p: Projection, { course, player, target }: MapWorld): void {
@@ -225,6 +295,22 @@ function drawLabels(ctx: CanvasRenderingContext2D, width: number, height: number
   }
 
   const font = width >= 500 ? 11 : 9;
+  if (width >= 460) {
+    ctx.font = '600 10px "IBM Plex Mono", monospace';
+    ctx.textBaseline = 'middle';
+    for (const district of NEW_DISTRICTS) {
+      const name = district.name.toUpperCase();
+      const labelWidth = Math.ceil(ctx.measureText(name).width) + 12;
+      const x = p.x(district.x) - labelWidth / 2, y = p.y(district.y) - 9;
+      const label = { x, y, width: labelWidth, height: 18 };
+      if ([...occupied, ...raceLine].some(other => overlaps(label, other))) continue;
+      occupied.push(label);
+      ctx.fillStyle = '#15111bd9';
+      ctx.fillRect(x, y, labelWidth, 18);
+      ctx.fillStyle = '#' + district.color.toString(16).padStart(6, '0');
+      ctx.fillText(name, x + 6, y + 9);
+    }
+  }
   ctx.font = `500 ${font}px "IBM Plex Mono", monospace`;
   ctx.textBaseline = 'middle';
   for (const { zone, x, y } of points) {
@@ -242,9 +328,9 @@ function drawLabels(ctx: CanvasRenderingContext2D, width: number, height: number
       const label = available.find(rect => !raceLine.some(segment => overlaps(rect, segment))) ?? available[0];
       if (!label) continue;
       occupied.push(label);
-      ctx.fillStyle = '#111a25f5';
+      ctx.fillStyle = '#17141ff5';
       ctx.fillRect(label.x, label.y, label.width, label.height);
-      ctx.fillStyle = zone.garage ? '#ffc097' : '#d3e1e5';
+      ctx.fillStyle = zone.garage ? '#ffa1ad' : '#e1dce8';
       ctx.fillText(text, label.x + 5, label.y + label.height / 2 + 0.3);
       break;
     }

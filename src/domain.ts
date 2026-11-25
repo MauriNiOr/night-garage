@@ -3,6 +3,7 @@ import {
   LEVELS, MODELS, RACES, TOURNAMENT, TUTORIAL,
   type ComponentKey, type Condition, type CustomizationKey, type RaceMode, type TutorialEvent,
 } from './catalog';
+import { RACE_COURSES } from './courses';
 
 export const SAVE_VERSION = 2;
 export const GARAGE_SPAWN = { x: 470, y: 379 };
@@ -48,6 +49,7 @@ export interface Stats {
   spent: number;
   paints: number;
   records: Partial<Record<RaceMode, RaceRecord>>;
+  routeRecords: Partial<Record<RaceMode, Partial<Record<number, RaceRecord>>>>;
 }
 
 export interface GameState {
@@ -68,7 +70,8 @@ export interface GameState {
   collection: number[];
   market: { bought: string[] };
   tournament: { stage: number; points: number } | null;
-  pendingRace: { mode: RaceMode; tournament: boolean } | null;
+  pendingRace: { mode: RaceMode; tournament: boolean; variant: number } | null;
+  nextRaceVariants: Partial<Record<RaceMode, number>>;
   nextCarId: number;
 }
 
@@ -141,12 +144,13 @@ export function newGame(): GameState {
     position: { scene: 'garage', ...GARAGE_SPAWN },
     settings: { music: 0.55, sfx: 0.75, quality: 'high' },
     job: null,
-    stats: { races: 0, wins: 0, repairs: 0, jobs: 0, purchases: 0, sales: 0, distance: 0, earned: 0, spent: 0, paints: 0, records: {} },
+    stats: { races: 0, wins: 0, repairs: 0, jobs: 0, purchases: 0, sales: 0, distance: 0, earned: 0, spent: 0, paints: 0, records: {}, routeRecords: {} },
     achievements: [],
     collection: [0],
     market: { bought: [] },
     tournament: null,
     pendingRace: null,
+    nextRaceVariants: {},
     nextCarId: 2,
   };
 }
@@ -477,7 +481,9 @@ export function raceEntry(state: GameState, mode: RaceMode): CommandResult {
   if (car.fuel < 4) return fail('Necesitas al menos un 4 % de combustible para inscribirte.');
   if (!tournament) debit(state, race.fee);
   car.fuel -= 3;
-  state.pendingRace = { mode, tournament };
+  const variant = state.nextRaceVariants[mode] ?? 0;
+  state.pendingRace = { mode, tournament, variant };
+  state.nextRaceVariants[mode] = (variant + 1) % RACE_COURSES[mode].length;
   return success(`Inscripción confirmada: ${race.subtitle}.`);
 }
 
@@ -526,9 +532,12 @@ export function settleRace(state: GameState, report: RaceReport): RaceReward {
   addProgress(state, reward.rep);
   state.stats.races += 1;
   if (won) state.stats.wins += 1;
-  const record = state.stats.records[report.mode];
-  reward.personalBest = !record || (report.mode === 'drift' ? drift > record.drift : report.time < record.time);
-  if (reward.personalBest) state.stats.records[report.mode] = { time: report.time, position, drift };
+  const current = { time: report.time, position, drift };
+  const isBetter = (record: RaceRecord | undefined) => !record || (report.mode === 'drift' ? drift > record.drift : report.time < record.time);
+  const routeRecords = state.stats.routeRecords[report.mode] ??= {};
+  reward.personalBest = isBetter(routeRecords[entry.variant]);
+  if (reward.personalBest) routeRecords[entry.variant] = current;
+  if (isBetter(state.stats.records[report.mode])) state.stats.records[report.mode] = current;
   if (firstRace) award(state, 'first-race');
   if (won) award(state, 'first-win');
   if (entry.tournament && state.tournament && tournamentRace(state) === report.mode) {

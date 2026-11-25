@@ -86,13 +86,17 @@ async function driveRace(page: Page, mode: RaceMode) {
       const alignment = angleDifference(approach - Number(angle) * Math.PI / 180);
       const distance = Math.hypot(dx, dy);
       const velocity = Number(speed);
-      const speedLimit = Math.abs(alignment) > 1 ? 41 : Math.abs(alignment) > .46 ? 62 : turn && distance < 136 ? 72 : 165;
+      const corner = turn && distance < (mode === 'drift' ? 150 : 136);
+      const cornerSpeed = mode === 'drift' ? 57 : 72;
+      const speedLimit = Math.abs(alignment) > 1 ? 41 : Math.abs(alignment) > .46 ? 62 : corner ? cornerSpeed : 165;
       const next = new Set<Control>();
       if (alignment < -.035) next.add('a');
       if (alignment > .035) next.add('d');
       if (velocity < speedLimit) next.add('w');
       if (velocity > speedLimit + 10) next.add('s');
-      if (Math.abs(alignment) > (mode === 'drift' ? .44 : 1) && velocity > 66) next.add('Space');
+      if (mode === 'drift' ? Number(checkpoint) === 1 && Math.abs(alignment) > .44 && velocity > 63 : Math.abs(alignment) > 1 && velocity > 66) {
+        next.add('Space');
+      }
       if (distance > 250 && Math.abs(alignment) < .13 && velocity < 154) next.add('Shift');
       await setControls(page, held, next);
       await page.waitForTimeout(38);
@@ -151,3 +155,13 @@ for (const mode of ['drag', 'circuit', 'time', 'drift'] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test('completes a repeat Sprint on the eastern route', async ({ page }) => {
+  test.setTimeout(130_000);
+  const prepared = prepareRace('sprint', 1, 2000);
+  prepared.nextRaceVariants.sprint = 1;
+  const game = await enterRace(page, 'sprint', prepared);
+  await expect(game.locator('[data-hud=detail]')).toHaveText('Muelle Carmesí');
+  await expect.poll(async () => Number(await game.getAttribute('data-target-x'))).toBeGreaterThan(3376);
+  await driveRace(page, 'sprint');
+});
