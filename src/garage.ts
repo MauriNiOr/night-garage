@@ -5,20 +5,32 @@ type StationId = 'lift' | 'tools' | 'pc' | 'parts' | 'paint' | 'engine' | 'parki
 type Point = { x: number; y: number }
 type CarStyle = { wheels?: number; height?: number; spoiler?: number; bumper?: number; vinyl?: number; underglow?: number; exhaust?: number }
 type GarageData = { spawn?: Point; level?: number; color?: number; model?: number; target?: StationId; style?: CarStyle }
-type Fixture = Point & { id: StationId; label: string; radius: number }
+type Fixture = Point & { id: StationId; label: string; radius: number; markerOffset?: number }
 type Particle = Point & { dx: number; dy: number; life: number; initialLife: number; color: number }
 
 const stations: Fixture[] = [
-  { id: 'pc', label: 'Oficina', x: 135, y: 177, radius: 41 },
+  { id: 'pc', label: 'Oficina', x: 135, y: 177, radius: 41, markerOffset: 27 },
   { id: 'tools', label: 'Banco de herramientas', x: 219, y: 241, radius: 43 },
   { id: 'lift', label: 'Elevador', x: 548, y: 229, radius: 52 },
   { id: 'parts', label: 'Almacén de componentes', x: 803, y: 173, radius: 48 },
   { id: 'paint', label: 'Cabina de pintura', x: 800, y: 296, radius: 52 },
   { id: 'engine', label: 'Banco de motores', x: 268, y: 340, radius: 51 },
-  { id: 'parking', label: 'Aparcamiento', x: 617, y: 352, radius: 67 },
+  { id: 'parking', label: 'Aparcamiento', x: 617, y: 352, radius: 67, markerOffset: 9 },
   { id: 'diagnostic', label: 'Diagnóstico', x: 506, y: 326, radius: 45 },
   { id: 'exit', label: 'Salida a la ciudad', x: 490, y: 459, radius: 45 },
 ]
+
+const stationSymbols: Record<StationId, string[]> = {
+  pc: ['111111111', '100000001', '101010101', '100000001', '111111111', '000010000', '001111100'],
+  tools: ['001100010', '000100111', '000101110', '000111100', '001110000', '011100000', '111000000'],
+  lift: ['100010001', '100111001', '100010001', '100010001', '100000001', '111111111', '100000001'],
+  parts: ['001111100', '010010010', '111111111', '100010001', '100010001', '010010010', '001111100'],
+  paint: ['000010000', '000111000', '001111100', '011011110', '011011110', '011111110', '001111100'],
+  engine: ['001111100', '000010000', '101111101', '111000111', '101101101', '001111100', '000111000'],
+  parking: ['001111100', '010000010', '111111111', '110000011', '111111111', '100000001', '100000001'],
+  diagnostic: ['000010000', '000010000', '000101000', '110101011', '001001100', '001001000', '000001000'],
+  exit: ['111100000', '100100100', '100100010', '100101111', '100100010', '100100100', '111100000'],
+}
 
 const obstacles = [
   [37, 68, 88, 81],
@@ -75,9 +87,9 @@ function aura(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, r
 }
 
 function stripes(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
-  block(ctx, x, y, w, h, '#221f23')
+  block(ctx, x, y, w, h, '#1b171e')
   for (let i = 0; i < w - h; i += 7) {
-    shape(ctx, '#9e7542', x + i, y + h, x + i + h, y, x + i + h + 4, y, x + i + 4, y + h)
+    shape(ctx, '#a54253', x + i, y + h, x + i + h, y, x + i + h + 4, y, x + i + 4, y + h)
   }
 }
 
@@ -102,8 +114,8 @@ function crate(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
 }
 
 function cabinet(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, red = false) {
-  const face = red ? '#733a3d' : '#404b56'
-  const top = red ? '#a75948' : '#61717b'
+  const face = red ? '#793548' : '#404b56'
+  const top = red ? '#ac5060' : '#61717b'
   shape(ctx, '#10151e', x - 2, y + h, x + w + 9, y + h, x + w + 13, y + h + 7, x + 2, y + h + 7)
   shape(ctx, top, x, y, x + 5, y - 5, x + w + 6, y - 5, x + w, y)
   shape(ctx, '#252d39', x + w, y, x + w + 6, y - 5, x + w + 6, y + h - 4, x + w, y + h)
@@ -119,13 +131,13 @@ function cabinet(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
   block(ctx, x + w - 6, y + h, 3, 3, '#131924')
 }
 
-function lamp(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, warm = false) {
-  const light = warm ? '#fcd294' : '#9df1ef'
+function lamp(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, red = false) {
+  const light = red ? '#ff6576' : '#c6e5f1'
   block(ctx, x - 2, y - 3, width + 4, 6, '#141820')
-  block(ctx, x, y - 2, width, 4, warm ? '#bd7649' : '#538f8a')
+  block(ctx, x, y - 2, width, 4, red ? '#953649' : '#698b9f')
   block(ctx, x + 1, y - 1, width - 2, 2, light)
-  block(ctx, x + 2, y - 1, width - 4, 1, '#feead7')
-  aura(ctx, x + width / 2, y + 4, width * 1.15, width * .7, warm ? '#efa75c38' : '#48e0d634')
+  block(ctx, x + 2, y - 1, width - 4, 1, red ? '#ffc9cf' : '#f4faff')
+  aura(ctx, x + width / 2, y + 4, width * 1.15, width * .7, red ? '#fb29444a' : '#b0dcff36')
 }
 
 function windowBay(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, cityId: number) {
@@ -138,7 +150,7 @@ function windowBay(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
     block(ctx, Math.max(x, x + col), y + h - buildingH, buildingW, buildingH, col % 2 === 0 ? '#182333' : '#243141')
     for (let py = h - buildingH + 2; py < h - 1; py += 3) {
       for (let px = Math.max(0, col + 1); px < Math.min(w, col + 6); px += 3) {
-        if (seed(px, py + cityId) > .69) block(ctx, x + px, y + py, 1, 1, px % 3 === 1 ? '#e18b62' : '#549ba1')
+        if (seed(px, py + cityId) > .69) block(ctx, x + px, y + py, 1, 1, px % 3 === 1 ? '#fa7186' : '#75a0ae')
       }
     }
   }
@@ -155,10 +167,10 @@ function windowBay(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
-  block(ctx, 0, 0, 480, 270, '#0a101a')
+  block(ctx, 0, 0, 480, 270, '#0c0a12')
   const city = ctx.createLinearGradient(0, 0, 0, 43)
-  city.addColorStop(0, '#10182a')
-  city.addColorStop(1, '#293044')
+  city.addColorStop(0, '#13121e')
+  city.addColorStop(1, '#463146')
   ctx.fillStyle = city
   ctx.fillRect(0, 0, 480, 37)
   for (let x = -4; x < 480; x += 13) {
@@ -166,19 +178,19 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
     block(ctx, x, 32 - h, 10, h + 8, x % 2 === 0 ? '#172133' : '#19263a')
     for (let y = 32 - h + 3; y < 30; y += 4) {
       for (let dx = 2; dx < 9; dx += 3) {
-        if (seed(x + dx, y) > .76) block(ctx, x + dx, y, 1, 1, '#e7a370')
+        if (seed(x + dx, y) > .76) block(ctx, x + dx, y, 1, 1, x % 2 === 0 ? '#e66377' : '#abaeca')
       }
     }
   }
   for (let k = 0; k < 3; k++) line(ctx, 0, 10 + k * 4, 479, 20 - k * 2, '#101a28')
   shape(ctx, '#111825', 15, 33, 464, 33, 479, 64, 0, 64)
-  block(ctx, 17, 35, 446, 3, '#4f4650')
-  block(ctx, 17, 38, 446, 18, '#222732')
+  block(ctx, 17, 35, 446, 3, '#55404c')
+  block(ctx, 17, 38, 446, 18, '#25212c')
   block(ctx, 16, 55, 450, 2, '#657078')
 
   const wall = ctx.createLinearGradient(0, 43, 0, 94)
-  wall.addColorStop(0, level > 2 ? '#344653' : '#3b333c')
-  wall.addColorStop(1, '#242c37')
+  wall.addColorStop(0, level > 2 ? '#4b3d4a' : '#433744')
+  wall.addColorStop(1, '#32313c')
   ctx.fillStyle = wall
   ctx.fillRect(23, 46, 434, 44)
   for (let y = 46; y < 90; y += 5) {
@@ -209,12 +221,17 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
 
   windowBay(ctx, 105, 48, 71, 26, 30)
   windowBay(ctx, 302, 48, 62, 26, 71)
-  block(ctx, 197, 45, 88, 31, '#171e28')
-  block(ctx, 198, 46, 86, 28, '#302a33')
-  block(ctx, 198, 46, 86, 1, '#7e5548')
-  aura(ctx, 239, 56, 71, 23, '#e44b273c')
-  sign(ctx, 'NIGHT GARAGE', 204, 51, '#ff875d', 10)
-  sign(ctx, level > 2 ? 'PREPARACIÓN DEPORTIVA' : 'MOTOR & MECÁNICA', level > 2 ? 201 : 211, 64, '#b2978b', 5)
+  aura(ctx, 240, 57, 97, 29, '#f52d5253')
+  shape(ctx, '#160d17', 197, 44, 285, 44, 291, 51, 291, 66, 284, 73, 191, 73, 191, 51)
+  line(ctx, 197, 45, 284, 45, '#bb3a50')
+  line(ctx, 192, 51, 192, 64, '#c03c52')
+  line(ctx, 289, 51, 289, 64, '#c03c52')
+  line(ctx, 198, 70, 282, 70, '#762838')
+  aura(ctx, 240, 57, 52, 15, '#f62d5769')
+  sign(ctx, 'NIGHT GARAGE', 200, 51, '#fa3855', 11)
+  sign(ctx, 'NIGHT GARAGE', 200, 50, '#ffd5d9', 11)
+  shape(ctx, '#ee4861', 233, 66, 236, 62, 239, 62, 236, 66)
+  shape(ctx, '#ee4861', 240, 66, 243, 62, 246, 62, 243, 66)
   for (const x of [94, 184, 291, 366]) {
     block(ctx, x, 41, 2, 46, '#101821')
     block(ctx, x + 2, 41, 1, 46, '#5a4b48')
@@ -222,9 +239,9 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
   }
 
   const floor = ctx.createLinearGradient(0, 83, 0, 242)
-  floor.addColorStop(0, '#2a303b')
-  floor.addColorStop(.56, level >= 3 ? '#353b45' : '#353541')
-  floor.addColorStop(1, '#252d38')
+  floor.addColorStop(0, '#38343f')
+  floor.addColorStop(.56, level >= 3 ? '#42404c' : '#3e3b46')
+  floor.addColorStop(1, '#2f303a')
   ctx.fillStyle = floor
   ctx.fillRect(34, 88, 412, 151)
   for (let x = 41; x < 449; x += 33) {
@@ -243,23 +260,32 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
     }
   }
   for (const [x, y, rx, ry] of [[87, 114, 41, 24], [263, 110, 67, 23], [409, 137, 49, 28], [280, 198, 149, 35]]) {
-    aura(ctx, x, y, rx, ry, y < 120 ? '#6ddbd12b' : '#4da6ce32')
+    aura(ctx, x, y, rx, ry, y < 120 ? '#c1d7ed34' : '#a4c6ed28')
   }
-  aura(ctx, 406, 83, 58, 47, '#ff9a5450')
+  aura(ctx, 406, 83, 63, 47, '#ff2e514f')
   aura(ctx, 243, 223, 93, 36, '#1894b332')
-  aura(ctx, 142, 160, 49, 49, '#df794927')
+  aura(ctx, 90, 111, 65, 42, '#df335442')
+  aura(ctx, 407, 148, 71, 45, '#ee426432')
+  aura(ctx, 240, 143, 115, 46, '#ff305632')
 
   for (let i = 0; i < 52; i++) {
     const x = 42 + Math.floor(seed(i, 150) * 393), y = 96 + Math.floor(seed(i, 32) * 135)
     block(ctx, x, y, 1 + Math.round(seed(i, 31) * 8), 1, '#e5c19d14')
   }
   for (const [x, y, w, h] of [[224, 196, 46, 23], [145, 146, 34, 11], [344, 194, 43, 12], [206, 117, 21, 9]]) {
-    shape(ctx, '#30485170', x, y + h, x + 5, y + 1, x + w - 7, y, x + w, y + h - 7, x + w - 2, y + h)
+    shape(ctx, '#54304770', x, y + h, x + 5, y + 1, x + w - 7, y, x + w, y + h - 7, x + w - 2, y + h)
     for (let i = 0; i < 8; i++) {
       const dy = Math.round(seed(i, y) * (h - 3))
       const dx = Math.round(seed(i, x) * (w - 17))
-      block(ctx, x + 6 + dx, y + 2 + dy, 4 + i % 5, 1, i % 3 === 0 ? '#76c2c333' : '#a1b7d021')
+      block(ctx, x + 6 + dx, y + 2 + dy, 4 + i % 5, 1, i % 3 === 0 ? '#f8728f68' : '#a1b7d038')
     }
+  }
+  for (const [x, y] of [[29, 108], [450, 108]]) {
+    block(ctx, x - 2, y - 5, 5, 103, '#17121e')
+    block(ctx, x, y, 1, 94, '#ff607e')
+    block(ctx, x - 1, y + 2, 1, 90, '#8b314f')
+    aura(ctx, x, y + 43, 48, 74, '#ef244b44')
+    for (let i = 0; i < 4; i++) block(ctx, x - 3, y + 12 + i * 24, 6, 2, '#2b2431')
   }
 
   // Steel channels drain the rainwater that pools near the entrance.
@@ -267,8 +293,11 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
   block(ctx, 38, 221, 404, 1, '#62707b')
   for (let x = 41; x < 440; x += 4) block(ctx, x, 218, 1, 3, '#56616d')
   block(ctx, 38, 217, 404, 1, '#74818a52')
-  for (const x of [174, 296]) {
-    for (let y = 184; y < 214; y += 9) block(ctx, x, y, 1, 5, '#8e82736e')
+  for (const x of [192, 282]) {
+    for (let y = 184; y < 214; y += 9) block(ctx, x, y, 2, 5, '#db647662')
+  }
+  for (const y of [204, 214, 225]) {
+    shape(ctx, '#bd5d7180', 232, y - 3, 239, y, 246, y - 3, 246, y, 239, y + 3, 232, y)
   }
   for (const [x, y] of [[157, 105], [180, 185], [116, 210], [366, 175], [390, 113], [203, 155]]) {
     line(ctx, x, y, x + 5, y + 3, '#151c294f')
@@ -296,6 +325,10 @@ function drawStructure(ctx: CanvasRenderingContext2D, level: number) {
   block(ctx, 290, 237, 7, 14, '#141c26')
   block(ctx, 191, 237, 2, 12, '#7b6d65')
   block(ctx, 292, 237, 2, 12, '#7b6d65')
+  for (const x of [191, 291]) {
+    block(ctx, x, 236, 3, 2, '#ff5a77')
+    aura(ctx, x, 244, 25, 18, '#f2376268')
+  }
 }
 
 function drawOffice(ctx: CanvasRenderingContext2D, level: number) {
@@ -324,7 +357,6 @@ function drawOffice(ctx: CanvasRenderingContext2D, level: number) {
   block(ctx, 57, 88, 2, 4, '#4e535d')
   block(ctx, 54, 92, 8, 1, '#141923')
   aura(ctx, 63, 68, 19, 13, '#65e0d72e')
-  sign(ctx, '01 / OFICINA', 42, 53, '#c6a48f', 5)
 }
 
 function drawWorkbenches(ctx: CanvasRenderingContext2D, level: number) {
@@ -376,12 +408,11 @@ function drawWorkbenches(ctx: CanvasRenderingContext2D, level: number) {
   line(ctx, 103, 154, 101, 165, '#ad7a56')
   line(ctx, 101, 165, 95, 163, '#ad7a56')
   lamp(ctx, 80, 86, 40, level < 2)
-  sign(ctx, 'MECÁNICA', 106, 166, '#9f8984', 5)
 }
 
 function drawLift(ctx: CanvasRenderingContext2D, level: number) {
-  const blue = level > 1 ? '#467a8e' : '#3c596f'
-  const blueLight = level > 1 ? '#75b9c6' : '#78858e'
+  const post = level > 1 ? '#903b5b' : '#643448'
+  const postEdge = level > 1 ? '#ed6583' : '#bf7487'
   shape(ctx, '#141d29', 234, 85, 315, 85, 329, 114, 230, 114)
   shape(ctx, '#3e4650', 239, 89, 311, 89, 320, 111, 235, 111)
   for (let x = 243; x < 318; x += 6) line(ctx, x - 3, 109, x, 92, '#293442')
@@ -392,11 +423,11 @@ function drawLift(ctx: CanvasRenderingContext2D, level: number) {
   stripes(ctx, 235, 110, 85, 3)
   for (const x of [238, 312]) {
     block(ctx, x - 2, 106, 12, 4, '#1b2632')
-    block(ctx, x, 75, 7, 34, blue)
-    block(ctx, x, 75, 6, 2, blueLight)
-    block(ctx, x + 1, 78, 2, 26, '#243446')
-    block(ctx, x + 4, 79, 1, 27, blueLight)
-    block(ctx, x + 2, 102, 6, 3, '#bd9461')
+    block(ctx, x, 75, 7, 34, post)
+    block(ctx, x, 75, 6, 2, postEdge)
+    block(ctx, x + 1, 78, 2, 26, '#302333')
+    block(ctx, x + 4, 79, 1, 27, postEdge)
+    block(ctx, x + 2, 102, 6, 3, '#cc5970')
     block(ctx, x + 5, 86, 3, 9, '#1f303e')
     block(ctx, x + 6, 87, 1, 2, '#eaa858')
     block(ctx, x + 6, 91, 1, 1, '#55b5a6')
@@ -404,7 +435,6 @@ function drawLift(ctx: CanvasRenderingContext2D, level: number) {
   }
   block(ctx, 238, 73, 80, 2, '#475460')
   lamp(ctx, 250, 75, 57)
-  sign(ctx, 'BAY 01', 268, 104, '#8c9ba2', 5)
 }
 
 function drawParts(ctx: CanvasRenderingContext2D, level: number) {
@@ -421,7 +451,6 @@ function drawParts(ctx: CanvasRenderingContext2D, level: number) {
     }
   }
   lamp(ctx, 375, 55, 58, true)
-  sign(ctx, 'ALMACÉN', 393, 47, '#bca38e', 6)
   for (let i = 2; i >= 0; i--) {
     block(ctx, 435 + i, 87 - i * 3, 9, 7, '#131c28')
     block(ctx, 436 + i, 87 - i * 3, 7, 1, '#505763')
@@ -430,7 +459,7 @@ function drawParts(ctx: CanvasRenderingContext2D, level: number) {
 }
 
 function drawPaint(ctx: CanvasRenderingContext2D, level: number) {
-  const color = level > 3 ? '#796b9b' : '#535e72'
+  const color = level > 3 ? '#9a5485' : '#71537b'
   shape(ctx, '#12232f', 385, 102, 442, 102, 443, 149, 379, 150)
   shape(ctx, '#303b50', 389, 105, 439, 105, 439, 140, 384, 140)
   block(ctx, 392, 105, 42, 29, '#34374d')
@@ -440,7 +469,7 @@ function drawPaint(ctx: CanvasRenderingContext2D, level: number) {
   for (let x = 394; x < 433; x += 5) block(ctx, x, 109, 1, 30, '#252b40')
   for (let y = 114; y < 137; y += 6) block(ctx, 392, y, 44, 1, '#283044')
   lamp(ctx, 394, 106, 40)
-  aura(ctx, 412, 126, 35, 23, level > 3 ? '#b66cdf74' : '#3d8bc750')
+  aura(ctx, 412, 126, 35, 23, level > 3 ? '#f176bc79' : '#be4a9964')
   block(ctx, 396, 130, 4, 8, '#ad4d68')
   block(ctx, 397, 128, 2, 2, '#e2c0b6')
   block(ctx, 401, 131, 3, 6, '#558795')
@@ -451,21 +480,19 @@ function drawPaint(ctx: CanvasRenderingContext2D, level: number) {
   block(ctx, 416, 123, 13, 2, '#a48096')
   block(ctx, 417, 129, 2, 8, '#303548')
   block(ctx, 427, 129, 2, 8, '#303548')
-  sign(ctx, 'PINTURA', 394, 147, '#879cac', 5)
 }
 
 function drawParking(ctx: CanvasRenderingContext2D, level: number) {
-  shape(ctx, '#313c48', 280, 139, 347, 139, 356, 185, 272, 185)
+  shape(ctx, '#35323e', 280, 139, 347, 139, 356, 185, 272, 185)
   for (const [x, reverse] of [[280, -1], [347, 1]]) {
-    line(ctx, x, 138, x + reverse * 7, 183, '#9a9277')
-    line(ctx, x + reverse, 139, x + reverse * 8, 183, '#4e514e')
+    line(ctx, x, 138, x + reverse * 7, 183, '#aa5669')
+    line(ctx, x + reverse, 139, x + reverse * 8, 183, '#5a3d4b')
   }
-  block(ctx, 272, 183, 85, 1, '#939078')
+  block(ctx, 272, 183, 85, 1, '#aa5669')
   block(ctx, 279, 180, 9, 2, '#596369')
   block(ctx, 341, 180, 9, 2, '#596369')
-  block(ctx, 289, 141, 17, 2, '#9a916f')
-  block(ctx, 326, 141, 17, 2, '#9a916f')
-  sign(ctx, 'NG-01', 305, 176, '#6d7c85', 6)
+  block(ctx, 289, 141, 17, 2, '#aa5669')
+  block(ctx, 326, 141, 17, 2, '#aa5669')
   cabinet(ctx, 236, 147, 14, 8)
   block(ctx, 237, 140, 13, 8, '#192937')
   block(ctx, 238, 141, 11, 6, level > 2 ? '#57aaa5' : '#3f697c')
@@ -528,7 +555,6 @@ function drawExtraDetails(ctx: CanvasRenderingContext2D, level: number) {
     block(ctx, 444, 89, 2, 130, '#30a2a9')
     aura(ctx, 36, 155, 46, 91, '#55e7e847')
     aura(ctx, 442, 158, 49, 87, '#53e1f049')
-    sign(ctx, 'NG / COMPETICIÓN', 123, 69, '#7cd4ca', 4)
   }
   if (level >= 5) {
     for (const [x, y] of [[152, 123], [172, 123], [347, 157], [367, 157]]) {
@@ -554,7 +580,7 @@ function paintGarage(ctx: CanvasRenderingContext2D, level: number) {
   drawExtraDetails(ctx, level)
   const vignette = ctx.createRadialGradient(240, 131, 113, 240, 136, 280)
   vignette.addColorStop(0, 'transparent')
-  vignette.addColorStop(1, '#080d1b99')
+  vignette.addColorStop(1, '#1009116f')
   ctx.fillStyle = vignette
   ctx.fillRect(0, 0, 480, 270)
 }
@@ -567,6 +593,8 @@ export class GarageScene extends Phaser.Scene {
   private car!: Phaser.GameObjects.Image
   private carDetails!: Phaser.GameObjects.Graphics
   private marker!: Phaser.GameObjects.Graphics
+  private markerIcons: Phaser.GameObjects.Image[] = []
+  private reduceMotion = false
   private weather!: Phaser.GameObjects.Graphics
   private shutter!: Phaser.GameObjects.Graphics
   private keys?: Record<'W' | 'A' | 'S' | 'D' | 'E', Phaser.Input.Keyboard.Key>
@@ -642,6 +670,8 @@ export class GarageScene extends Phaser.Scene {
     this.renderCar()
     this.playerShadow = this.add.graphics().setDepth(4)
     this.marker = this.add.graphics().setDepth(8)
+    this.markerIcons = this.createStationIcons()
+    this.reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
     this.shutter = this.add.graphics().setDepth(10)
     this.weather = this.add.graphics().setDepth(11)
     const proposed = this.dataIn.spawn ?? { x: 470, y: 379 }
@@ -722,6 +752,29 @@ export class GarageScene extends Phaser.Scene {
       texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
     }
     return key
+  }
+
+  private createStationIcons() {
+    const key = 'ng-station-icons'
+    const width = 9, height = 7
+    if (!this.textures.exists(key)) {
+      const texture = this.textures.createCanvas(key, width * stations.length, height)
+      if (!texture) return []
+      const ctx = texture.getContext()
+      stations.forEach(({ id }, index) => {
+        const offset = index * width
+        stationSymbols[id].forEach((pixels, y) => {
+          for (let x = 0; x < width; x++) {
+            if (pixels[x] === '1') block(ctx, offset + x, y, 1, 1, '#fff1f5')
+          }
+        })
+        texture.add(id, 0, offset, 0, width, height)
+      })
+      texture.refresh()
+      texture.setFilter(Phaser.Textures.FilterMode.NEAREST)
+    }
+    return stations.map(({ id, x, y, markerOffset = 0 }) =>
+      this.add.image(x, y + markerOffset - 16, key, id).setScale(2).setDepth(9))
   }
 
   private playerTexture() {
@@ -971,7 +1024,7 @@ export class GarageScene extends Phaser.Scene {
     const count = isPaint ? 22 : 28
     for (let i = 0; i < count; i++) {
       const life = Phaser.Math.FloatBetween(.18, .65)
-      const tone = isPaint ? 0xd78ebd : i % 3 === 0 ? 0xffe1a1 : 0xf69346
+      const tone = isPaint ? 0xed8bbd : i % 3 === 0 ? 0xffefd8 : 0xff636d
       this.effect.push({
         ...position,
         dx: Phaser.Math.FloatBetween(-72, 72),
@@ -985,26 +1038,26 @@ export class GarageScene extends Phaser.Scene {
 
   private drawMarker(time: number) {
     this.marker.clear()
-    for (const fixture of stations) {
+    const pulse = this.reduceMotion ? 0 : (1 + Math.sin(time / 205)) / 2
+    stations.forEach((fixture, index) => {
       const selected = fixture.id === this.activeStation?.id
       const guided = fixture.id === this.target
-      const color = guided ? 0xff995b : selected ? 0x8be2d6 : 0x687f8a
-      const gap = guided ? 6 + Math.round(Math.sin(time / 200) * 3) : 5
-      const { x, y } = fixture
-      if (selected || guided) {
-        const width = guided ? 19 : 13
-        this.marker.lineStyle(2, color, selected ? .62 : .48)
-        this.marker.lineBetween(x - width, y + gap, x - width + 6, y + gap)
-        this.marker.lineBetween(x + width, y + gap, x + width - 6, y + gap)
-        this.marker.lineBetween(x - width, y + gap, x - width, y + gap - 4)
-        this.marker.lineBetween(x + width, y + gap, x + width, y + gap - 4)
+      const { x } = fixture
+      const y = fixture.y + (fixture.markerOffset ?? 0)
+      const emphasized = selected || guided
+      const center = y - 16 - (guided && !selected ? Math.round(pulse * 4) : 0)
+      const radius = emphasized ? 16 : 13
+      const color = selected ? 0xffe1e8 : 0xff5b79
+      if (emphasized) {
+        this.marker.lineStyle(1, color, .17 + pulse * .2).strokeCircle(x, center, radius + 4 + pulse * 3)
+        this.marker.fillStyle(color, .29).fillEllipse(x, y + 3, 25, 6)
+        this.marker.fillStyle(color, .92).fillTriangle(x - 5, center + radius - 2, x + 5, center + radius - 2, x, y + 4)
       }
-      if (guided && !selected) {
-        const py = y - 20 + Math.round(Math.sin(time / 180) * 5)
-        this.marker.fillStyle(0x101824, .86).fillTriangle(x - 9, py - 3, x + 9, py - 3, x, py + 10)
-        this.marker.fillStyle(color, .95).fillTriangle(x - 6, py, x + 6, py, x, py + 7)
-      }
-    }
+      this.marker.fillStyle(0x120d19, .97).fillCircle(x, center + 2, radius + 1)
+      this.marker.fillStyle(guided ? 0x961f43 : 0x241b27, emphasized ? 1 : .93).fillCircle(x, center, radius)
+      this.marker.lineStyle(emphasized ? 2 : 1, color, emphasized ? .96 : .73).strokeCircle(x, center, radius)
+      this.markerIcons[index]?.setY(center).setAlpha(emphasized ? 1 : .94)
+    })
   }
 
   private updateWeather(time: number, dt: number) {
@@ -1013,24 +1066,33 @@ export class GarageScene extends Phaser.Scene {
     for (let i = 0; i < (lowQuality ? 24 : 51); i++) {
       const y = i % 3 === 0 ? ((time * .06 + seed(i, 87) * 52) % 52) : 491 + ((time * .10 + seed(i, 4) * 46) % 46)
       const x = (seed(i, 94) * 961 + time * .016) % 960
-      this.weather.lineStyle(1, i % 6 === 0 ? 0x7ac7d0 : 0x557893, .17 + seed(i, 56) * .21)
+      this.weather.lineStyle(1, i % 6 === 0 ? 0xf884a0 : 0x7a8da8, .17 + seed(i, 56) * .21)
       this.weather.lineBetween(Math.floor(x), Math.floor(y), Math.floor(x - 4), Math.floor(y + 8))
     }
-    if (!lowQuality) {
+    if (!lowQuality && !this.reduceMotion) {
       for (let i = 0; i < 9; i++) {
         const progress = (time / 2300 + i / 9) % 1
         const x = 824 + Math.round(Math.sin(progress * 8 + i) * 9) + Math.round(progress * 21)
         const y = 263 - Math.round(progress * 33)
-        this.weather.fillStyle(0x8ebbde, (1 - progress) * .09).fillRect(x, y, 2 + Math.round(progress * 6), 2)
+        this.weather.fillStyle(0xf3a4cb, (1 - progress) * .14).fillRect(x, y, 2 + Math.round(progress * 6), 2)
       }
       for (let i = 0; i < 9; i++) {
         const x = 492 + Math.floor((seed(i, 71) * 120 + time / 137) % 120)
         const y = 167 + Math.floor((seed(i, 96) * 55 + time / 244) % 55)
         this.weather.fillStyle(0xc4e0d3, .06 + Math.sin(time / 780 + i) * .035).fillRect(x, y, 2, 2)
       }
+      for (let i = 0; i < 13; i++) {
+        const phase = (time / 2240 + seed(i, 44)) % 1
+        const y = 491 + Math.round(phase * 48)
+        const spread = (i % 2 ? 1 : -1) * Math.round(phase * 11)
+        const x = (i % 2 ? 382 : 582) + spread + Math.floor(seed(i, 61) * 19)
+        this.weather.fillStyle(0xfc5579, Math.sin(phase * Math.PI) * .24).fillRect(x, y, 6 + i % 8, 1)
+      }
+      const scanY = 284 + Math.floor(time / 110) % 8
+      this.weather.fillStyle(0xb1f9df, .23).fillRect(477, scanY, 19, 1)
     }
     this.weather.fillStyle(0x9be6e2, .31 + Math.sin(time / 280) * .21).fillRect(480, 291, 3, 2)
-    this.weather.fillStyle(0xffbb71, .27 + Math.sin(time / 250) * .22).fillRect(637, 182, 2, 2)
+    this.weather.fillStyle(0xff7890, .4 + Math.sin(time / 250) * .25).fillRect(637, 182, 2, 2)
     for (let i = this.effect.length - 1; i >= 0; i--) {
       const particle = this.effect[i]
       if (particle.life <= 0) {
@@ -1068,7 +1130,7 @@ export class GarageScene extends Phaser.Scene {
       shutter.fillStyle(0x78828b, .6).fillRect(397, 475 + i, 175, 1)
     }
     shutter.fillStyle(0x191f2b, 1).fillRect(391, 473, 187, 4)
-    shutter.fillStyle(0xd7aa7f, .57).fillRect(399, 473, 173, 1)
-    shutter.fillStyle(this.leaving ? 0x7ee3bf : 0xf58b59, 1).fillRect(581, 479, 3, 3)
+    shutter.fillStyle(0xed6b8a, .58).fillRect(399, 473, 173, 1)
+    shutter.fillStyle(this.leaving ? 0x7ee3bf : 0xf85c78, 1).fillRect(581, 479, 3, 3)
   }
 }

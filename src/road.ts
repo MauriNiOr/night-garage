@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { bridge } from './bridge';
 import { RACES } from './catalog';
 import type { RaceMode } from './catalog';
-import { cityMap, HORIZONTALS, VERTICALS } from './geography';
+import { RACE_COURSES } from './courses';
+import { cityMap, COAST, HORIZONTALS, NEW_DISTRICTS, VERTICALS } from './geography';
 import type { Zone } from './geography';
 
 export type RoadMode = 'free' | RaceMode;
@@ -12,8 +13,8 @@ type Tuning = {
   power: number; grip: number; brakes: number; maxSpeed: number; nitro: number; color: number; model: number;
   wing?: number; neon?: number; rims?: number; vinyl?: number; ride?: number; exhaust?: number; bumper?: number;
 };
-type RoadStart = { mode?: RoadMode; tuning?: Tuning; resume?: Point & { angle?: number } };
-type Route = { points: Point[]; laps: number; opponents: number };
+type RoadStart = { mode?: RoadMode; tuning?: Tuning; resume?: Point & { angle?: number }; routeVariant?: number };
+type Route = { name: string; points: Point[]; laps: number; opponents: number };
 type Car = { body: Phaser.GameObjects.Container; x: number; y: number; velocityX: number; velocityY: number; angle: number };
 type Driver = { car: Car; progress: number; pace: number; lane: number; phase: number; course?: Waypoint[] };
 type KeyMap = Record<'w' | 'a' | 's' | 'd' | 'up' | 'down' | 'left' | 'right' | 'space' | 'shift' | 'e', Phaser.Input.Keyboard.Key>;
@@ -25,12 +26,12 @@ type Rain = { x: number; y: number; speed: number; height: number; alpha: number
 const { width: WIDTH, height: HEIGHT, roads: ROADS, zones: ZONES } = cityMap;
 const KMH_PER_PIXEL = 0.63;
 const pt = (x: number, y: number): Point => ({ x, y });
-const ROUTES: Record<Exclude<RoadMode, 'free'>, Route> = {
-  sprint: { points: [pt(500, 420), pt(1130, 420), pt(1130, 1030), pt(1890, 1030), pt(1890, 1680), pt(2660, 1680), pt(3260, 1680)], laps: 1, opponents: 3 },
-  circuit: { points: [pt(1170, 1030), pt(1890, 1030), pt(1890, 1680), pt(1130, 1680), pt(1130, 1030), pt(1170, 1030)], laps: 2, opponents: 3 },
-  time: { points: [pt(480, 1680), pt(1130, 1680), pt(1130, 2160), pt(1890, 2160), pt(1890, 1680), pt(2660, 1680)], laps: 1, opponents: 0 },
-  drift: { points: [pt(2620, 2160), pt(1890, 2160), pt(1890, 1680), pt(1130, 1680), pt(1130, 2160), pt(400, 2160)], laps: 1, opponents: 0 },
-  drag: { points: [pt(1950, 420), pt(2270, 420), pt(2660, 420), pt(3020, 420), pt(3260, 420)], laps: 1, opponents: 2 },
+const RACE_RULES: Record<RaceMode, Pick<Route, 'laps' | 'opponents'>> = {
+  sprint: { laps: 1, opponents: 3 },
+  circuit: { laps: 2, opponents: 3 },
+  time: { laps: 1, opponents: 0 },
+  drift: { laps: 1, opponents: 0 },
+  drag: { laps: 1, opponents: 2 },
 };
 const PAINTS: Paint[] = [
   { roof:'#3d464d', mid:'#2c333f', dark:'#151e2b', edge:'#606172', wall:'#262d39', lamp:'#eeb889' },
@@ -58,6 +59,7 @@ export class RoadScene extends Phaser.Scene {
   private tuning: Tuning = DEFAULT_TUNING;
   private resume?: RoadStart['resume'];
   private route?: Route;
+  private routeVariant = 0;
   private waypoints: Waypoint[] = [];
   private player!: Car;
   private keys?: KeyMap;
@@ -99,7 +101,11 @@ export class RoadScene extends Phaser.Scene {
     this.mode = data?.mode ?? 'free';
     this.tuning = data?.tuning ?? DEFAULT_TUNING;
     this.resume = data?.resume;
-    this.route = this.mode === 'free' ? undefined : ROUTES[this.mode];
+    this.routeVariant = data?.routeVariant ?? 0;
+    this.route = this.mode === 'free' ? undefined : {
+      ...(RACE_COURSES[this.mode][this.routeVariant] ?? RACE_COURSES[this.mode][0]),
+      ...RACE_RULES[this.mode],
+    };
     this.waypoints = this.route ? this.makeCourse(this.route.points) : [];
     this.random = new Random(43);
     this.solids = [];
@@ -235,7 +241,7 @@ export class RoadScene extends Phaser.Scene {
         }
       });
     }
-    for (const [name, color] of [['amber', '#f4bd7d'], ['mint', '#75d8c6'], ['pink', '#e17ac8'], ['red', '#ff815d']] as const) {
+    for (const [name, color] of [['amber', '#f4bd7d'], ['mint', '#75d8c6'], ['pink', '#e17ac8'], ['red', '#ff4958']] as const) {
       this.canvasTexture('road-glow-' + name, 96, 96, ctx => {
         const gradient = ctx.createRadialGradient(48, 48, 0, 48, 48, 48);
         gradient.addColorStop(0, color + 'a5');
@@ -356,33 +362,48 @@ export class RoadScene extends Phaser.Scene {
   }
 
   private flattenCity() {
-    const renderer = this.game.renderer;
-    if (renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer && renderer.gl.getParameter(renderer.gl.MAX_TEXTURE_SIZE) < WIDTH) return;
     type LayerItem = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Depth;
     const background = (this.children.getChildren() as LayerItem[]).filter(item => item.depth <= 38).sort((first, second) => first.depth - second.depth);
-    const ground = this.add.renderTexture(0, 0, WIDTH, HEIGHT).setDepth(39).setOrigin(0);
-    ground.draw(background);
+    const bounds = new Map<Phaser.GameObjects.GameObject, CulledGroup>(this.culled.flatMap(group => group.items.map(item => [item, group] as const)));
+    const chunkSize = 1280;
+    for (let y = 0; y < HEIGHT; y += chunkSize) {
+      for (let x = 0; x < WIDTH; x += chunkSize) {
+        const width = Math.min(chunkSize, WIDTH - x);
+        const height = Math.min(chunkSize, HEIGHT - y);
+        const layers = background.filter(item => {
+          const group = bounds.get(item);
+          return !group || (group.x + group.width >= x && group.x <= x + width && group.y + group.height >= y && group.y <= y + height);
+        });
+        const start = this.children.length;
+        const ground = this.add.renderTexture(x, y, width, height).setDepth(39).setOrigin(0);
+        ground.camera.setScroll(x, y);
+        ground.draw(layers);
+        this.cullGroup(start, x, y, width, height);
+      }
+    }
     const flattened = new Set<Phaser.GameObjects.GameObject>(background);
     for (const group of this.culled) group.items = group.items.filter(item => !flattened.has(item));
+    this.culled = this.culled.filter(group => group.items.length > 0);
     for (const object of background) object.destroy();
   }
 
   private buildCity() {
     const ground = this.add.graphics().setDepth(2);
     this.add.tileSprite(0, 0, WIDTH, HEIGHT, 'road-lot').setOrigin(0);
-    this.add.tileSprite(3375, 0, WIDTH - 3375, HEIGHT, 'road-water').setOrigin(0).setDepth(1);
+    this.add.tileSprite(COAST.x, 0, WIDTH - COAST.x, HEIGHT, 'road-water').setOrigin(0).setDepth(1);
     ground.fillStyle(0x172128, 0.72);
-    ground.fillRect(3365, 0, 20, HEIGHT);
+    ground.fillRect(COAST.x - 10, 0, 20, HEIGHT);
     ground.lineStyle(2, 0x6a7779, .64);
-    ground.lineBetween(3374, 0, 3374, HEIGHT);
-    for (const y of [450, 850, 1400, 1900]) {
+    ground.lineBetween(COAST.x - 1, 0, COAST.x - 1, HEIGHT);
+    for (const y of COAST.piers) {
+      const left = COAST.x - 60;
       ground.fillStyle(0x323840, 1);
-      ground.fillRect(3315, y, 300, 70);
+      ground.fillRect(left, y, 300, 70);
       ground.fillStyle(0x4c5154, 1);
-      ground.fillRect(3315, y, 300, 5);
-      for (let x = 3360; x < 3614; x += 16) ground.fillRect(x, y + 5, 1, 65);
-      ground.fillStyle(0x75483c, 1);
-      ground.fillRect(3610, y + 4, 7, 62);
+      ground.fillRect(left, y, 300, 5);
+      for (let x = left + 45; x < left + 299; x += 16) ground.fillRect(x, y + 5, 1, 65);
+      ground.fillStyle(0x833e54, 1);
+      ground.fillRect(left + 295, y + 4, 7, 62);
     }
     const paving = this.add.graphics().setDepth(3);
     for (const rect of ROADS) {
@@ -484,18 +505,19 @@ export class RoadScene extends Phaser.Scene {
 
   private populateBlocks() {
     const lefts = [70, ...VERTICALS];
-    const rights = [...VERTICALS, 3332];
+    const rights = [...VERTICALS, COAST.x - 43];
     const tops = [20, ...HORIZONTALS];
-    const bottoms = [...HORIZONTALS, 2395];
+    const bottoms = [...HORIZONTALS, HEIGHT - 45];
     for (let row = 0; row < tops.length; row++) for (let col = 0; col < lefts.length; col++) {
       let left = lefts[col] + (col === 0 ? 0 : 112);
       let top = tops[row] + (row === 0 ? 0 : 124);
       const right = rights[col] - (col === rights.length - 1 ? 0 : 112);
       const bottom = bottoms[row] - (row === bottoms.length - 1 ? 0 : 123);
       if (right - left < 105 || bottom - top < 100) continue;
-      const park = (row === 2 && col === 3) || (row === 3 && col === 4);
-      const parking = (row === 0 && col === 3) || (row === 4 && col === 2);
-      const industrial = row === 1 || col >= 4 || row === 4;
+      const park = (row === 2 && col === 3) || (row === 3 && col === 4) || (row >= 4 && col === 6);
+      const parking = (row === 0 && col === 3) || (row === 4 && col === 2) || (row === 6 && col === 7);
+      const freight = col === 7 && row > 0 && row < 6;
+      const industrial = row === 1 || col >= 4 || row >= 4;
       const otherWidth = right - left;
       const otherHeight = bottom - top;
       const blockIndex = this.children.length;
@@ -507,6 +529,10 @@ export class RoadScene extends Phaser.Scene {
       }
       if (parking) {
         this.parking(left, top, otherWidth, otherHeight);
+        continue;
+      }
+      if (freight) {
+        this.freightYard(left, top, otherWidth, otherHeight);
         continue;
       }
       const small = otherWidth < 340;
@@ -655,6 +681,41 @@ export class RoadScene extends Phaser.Scene {
     this.streetlamp(left + width - 17, top + height / 2, true, 'amber');
   }
 
+  private freightYard(left: number, top: number, width: number, height: number) {
+    const start = this.children.length;
+    const yard = this.add.graphics().setDepth(15);
+    const right = left + width;
+    const bottom = top + height;
+    yard.fillStyle(0x22252e, 1).fillRect(left + 4, top + 4, width - 8, height - 8);
+    yard.lineStyle(2, 0x737483, .55).strokeRect(left + 7, top + 7, width - 14, height - 14);
+    for (let x = left + 22; x < right - 24; x += 19) {
+      yard.fillStyle(0xbb5264, .64).fillRect(x, top + 12, 9, 3).fillRect(x, bottom - 15, 9, 3);
+    }
+    const containers = [0x904455, 0x4c656d, 0x766478, 0x4d586e];
+    for (let y = top + 30; y < bottom - 42; y += 58) {
+      const offset = Math.round((y - top - 30) / 58) % containers.length;
+      for (const x of [left + 22, right - 105]) {
+        const tint = containers[(offset + Number(x > left + 24)) % containers.length];
+        yard.fillStyle(0x10141c, .78).fillRect(x + 6, y + 4, 83, 27);
+        yard.fillStyle(tint, 1).fillRect(x, y, 83, 22);
+        yard.fillStyle(0xb2b0bc, .46).fillRect(x, y, 83, 2);
+        for (let groove = 5; groove < 79; groove += 7) yard.fillStyle(0x171b28, .34).fillRect(x + groove, y + 3, 2, 15);
+        yard.fillStyle(0x1d2530, .72).fillRect(x, y + 19, 83, 5);
+        this.solids.push({ x, y, width: 83, height: 24 });
+      }
+    }
+    const craneX = left + width / 2;
+    yard.fillStyle(0x333942, 1).fillRect(craneX - 12, top + 18, 24, height - 36);
+    yard.fillStyle(0x7b7f89, .9).fillRect(craneX - 10, top + 18, 2, height - 36).fillRect(craneX + 8, top + 18, 2, height - 36);
+    const craneY = top + height / 2;
+    yard.fillStyle(0x6d3d50, 1).fillRect(left + 12, craneY - 8, width - 24, 16);
+    yard.fillStyle(0xdc7285, .84).fillRect(left + 12, craneY - 7, width - 24, 2);
+    yard.fillStyle(0x191c29, 1).fillRect(craneX - 13, craneY - 12, 26, 24);
+    yard.fillStyle(0xfa7b91, 1).fillRect(craneX - 8, craneY - 8, 16, 5);
+    this.add.image(craneX, craneY, 'road-glow-red').setDepth(19).setDisplaySize(150, 140).setBlendMode(Phaser.BlendModes.ADD);
+    this.cullGroup(start, left, top, width, height);
+  }
+
   private prop(x: number, y: number, frame: number, scale = 1) {
     if (this.textures.exists('road-props')) this.add.image(x, y, 'road-props', frame).setOrigin(.5, .84).setScale(scale).setDepth(38);
   }
@@ -700,13 +761,16 @@ export class RoadScene extends Phaser.Scene {
       this.cullGroup(start, zone.x - 100, zone.y - 62, 200, 125);
     }
     const titles = [
-      {x: 655, y: 550, name: 'NIGHT GARAGE', note: 'EST. 1996', color: '#ff9b69'},
+      {x: 655, y: 550, name: 'NIGHT GARAGE', note: 'EST. 1996', color: '#ff6475'},
       {x: 1023, y: 931, name: 'NOX', note: 'COMBUSTIBLES', color: '#89e4d2'},
       {x: 2015, y: 1146, name: 'COBALTO', note: 'MOTORS', color: '#cfacfa'},
       {x: 2536, y: 927, name: 'OVERDRIVE', note: 'PIEZAS', color: '#ffc196'},
       {x: 534, y: 1797, name: 'FARO', note: 'RECAMBIOS', color: '#eaba8b'},
       {x: 3270, y: 1840, name: 'DÁRSENA 9', note: 'PUERTO', color: '#8dd9da'},
       {x: 2774, y: 2045, name: 'MONTES', note: 'DEL ESTE', color: '#d2b6fc'},
+      {x: 4670, y: 1144, name: 'MUELLE CARMESÍ', note: 'TERMINAL ESTE', color: '#fa6d80'},
+      {x: 4100, y: 2283, name: 'LAS TORRES', note: 'PARQUE', color: '#92ccb4'},
+      {x: 2050, y: 2910, name: 'CINTURÓN SUR', note: 'POLÍGONO', color: '#ca9ce7'},
     ];
     for (const title of titles) {
       const start = this.children.length;
@@ -826,7 +890,8 @@ export class RoadScene extends Phaser.Scene {
       }
       return;
     }
-    for (let index = 0; index < 12; index++) {
+    const regions = (VERTICALS.length - 1) * (HORIZONTALS.length - 1);
+    for (let index = 0; index < regions; index += 2) {
       const progress = 230 + index * 598;
       const lane = index % 2 ? 44 : 30;
       const course = this.trafficCourse(index);
@@ -836,9 +901,11 @@ export class RoadScene extends Phaser.Scene {
   }
 
   private trafficCourse(index: number): Waypoint[] {
-    const region = index % 4;
+    const columns = VERTICALS.length - 1;
+    const region = index % columns;
     const left = VERTICALS[region], right = VERTICALS[region + 1];
-    const top = HORIZONTALS[Math.floor(index / 4)], bottom = HORIZONTALS[Math.floor(index / 4) + 1];
+    const row = Math.floor(index / columns);
+    const top = HORIZONTALS[row], bottom = HORIZONTALS[row + 1];
     return this.makeCourse([pt(left, top), pt(right, top), pt(right, bottom), pt(left, bottom), pt(left, top)]);
   }
 
@@ -901,6 +968,7 @@ export class RoadScene extends Phaser.Scene {
     const steer = right - left || (pad && Math.abs(pad.leftStick.x) > .18 ? pad.leftStick.x : 0);
     const handbrake = Boolean(keys?.space.isDown || touch.handbrake || pad?.X);
     const boost = Boolean(keys?.shift.isDown || touch.boost || pad?.B) && accelerating;
+    const nitroBefore = this.nitro;
     const interact = touch.interact || Boolean(pad?.A);
     if (this.countdown > 0) this.countdown = Math.max(0, this.countdown - seconds);
     if (this.finishDelay > 0) {
@@ -932,7 +1000,7 @@ export class RoadScene extends Phaser.Scene {
     this.nextHud -= seconds;
     if (this.nextHud <= 0) {
       this.nextHud = .078;
-      this.emitHud(accelerating ? 1 : 0, slip);
+      this.emitHud(accelerating ? 1 : 0, slip, handbrake, boost && this.nitro < nitroBefore);
     }
   }
 
@@ -986,7 +1054,7 @@ export class RoadScene extends Phaser.Scene {
   }
 
   private inCollision(x: number, y: number, radius = 15) {
-    if (x < 44 + radius || y < 31 + radius || x > 3376 - radius || y > HEIGHT - 23 - radius) return true;
+    if (x < 44 + radius || y < 31 + radius || x >= COAST.x - radius || y > HEIGHT - 23 - radius) return true;
     return this.solids.some(rect => {
       if (x < rect.x - radius || x > rect.x + rect.width + radius || y < rect.y - radius || y > rect.y + rect.height + radius) return false;
       const closestX = clamp(x, rect.x, rect.x + rect.width);
@@ -1106,7 +1174,7 @@ export class RoadScene extends Phaser.Scene {
     this.completed = completed;
     this.finished = true;
     this.finishDelay = .42;
-    this.cameras.main.flash(350, 244, 164, 111, false);
+    this.cameras.main.flash(350, 246, 115, 132, false);
   }
 
   private reportResult() {
@@ -1186,7 +1254,7 @@ export class RoadScene extends Phaser.Scene {
     const next = this.waypoints[this.checkpoint + 1];
     const incoming = unit(last, point);
     const outgoing = next ? unit(point, next) : incoming;
-    const color = this.mode === 'drift' ? 0xdb9ff9 : 0xffac6e;
+    const color = this.mode === 'drift' ? 0xdb9ff9 : 0xff7284;
     const pulse = .6 + Math.sin(this.modeClock * 5.1) * .23;
     const paintArrow = (x: number, y: number, direction: Point, alpha: number, size = 1) => {
       const dx = direction.x, dy = direction.y, sx = -dy, sy = dx;
@@ -1210,7 +1278,7 @@ export class RoadScene extends Phaser.Scene {
     if (final) {
       for (let offset = -64; offset < 64; offset += 8) for (let row = 0; row < 3; row++) {
         if ((offset / 8 + row) % 2 === 0) continue;
-        this.marks.fillStyle(0xffd4a1, .63).fillRect(point.x + perpendicular.x * offset + incoming.x * row * 8 - 4,
+        this.marks.fillStyle(0xffdce1, .76).fillRect(point.x + perpendicular.x * offset + incoming.x * row * 8 - 4,
           point.y + perpendicular.y * offset + incoming.y * row * 8 - 4, 8, 8);
       }
     } else {
@@ -1229,6 +1297,9 @@ export class RoadScene extends Phaser.Scene {
 
   private neighborhood() {
     const p = this.player;
+    if (p.x > 4320) return NEW_DISTRICTS[0].name;
+    if (p.x > 3440 && p.y > 1830) return NEW_DISTRICTS[1].name;
+    if (p.y > 2490) return NEW_DISTRICTS[2].name;
     if (p.x > 3040) return 'Puerto de Umbral';
     if (p.y > 1860 && p.x > 1475) return 'Montes del Este';
     if (p.y > 1470 && p.x < 870) return 'Barrio del Faro';
@@ -1237,7 +1308,7 @@ export class RoadScene extends Phaser.Scene {
     return 'Centro de Umbral';
   }
 
-  private emitHud(throttle: number, slip: number) {
+  private emitHud(throttle: number, slip: number, handbrake = false, boosting = false) {
     const speed = Math.round(Math.hypot(this.player.velocityX, this.player.velocityY) * KMH_PER_PIXEL);
     const reverse = this.player.velocityX * Math.cos(this.player.angle) + this.player.velocityY * Math.sin(this.player.angle) < -3;
     const target = this.route ? this.waypoints[this.checkpoint] : this.nearest ?? ZONES[0];
@@ -1248,6 +1319,7 @@ export class RoadScene extends Phaser.Scene {
       position: this.position, total: this.route?.opponents ? this.route.opponents + 1 : 1, lap: this.lap,
       laps: this.route?.laps ?? 0, checkpoint: this.completed ? this.waypoints.length - 1 : Math.max(0, this.checkpoint - 1),
       checkpoints: Math.max(0, this.waypoints.length - 1), countdown: this.countdown > 0 ? Math.min(3, Math.ceil(this.countdown)) : this.route && this.elapsed < .45 ? 'GO' : 0,
+      courseName: this.route?.name, courseVariant: this.route ? this.routeVariant + 1 : undefined,
       zone: this.nearest?.name ?? this.neighborhood(),
       prompt: this.nearest ? speed > 66 ? 'Reduce la velocidad para interactuar' : this.nearest.garage ? 'Entrar al taller' : this.nearest.short : '',
       minimap: {
@@ -1255,7 +1327,7 @@ export class RoadScene extends Phaser.Scene {
         target: target ? { x: target.x, y: target.y } : undefined, next: next ? { x: next.x, y: next.y } : undefined, course: this.route?.points,
         zones: ZONES.map(zone => ({ x: zone.x, y: zone.y, name: zone.short, accent: zone.accent })),
       },
-      x, y, angle, distance: Math.round(this.travel), drift: Math.round(this.drift), throttle, slip, gear: speed < 4 ? 0 : reverse ? -1 : Math.min(6, 1 + Math.floor(speed / 34)),
+      x, y, angle, distance: Math.round(this.travel), drift: Math.round(this.drift), throttle, slip, handbrake, boosting, gear: speed < 4 ? 0 : reverse ? -1 : Math.min(6, 1 + Math.floor(speed / 34)),
     });
   }
 }

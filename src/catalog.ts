@@ -127,8 +127,8 @@ export interface Race {
 }
 
 export const RACES: Record<RaceMode, Race> = {
-  sprint: { mode: 'sprint', name: 'Sprint', subtitle: 'La línea de sal', fee: 80, prize: 1020, rep: 12, minLevel: 1, description: 'Enlaza los controles del puerto hasta cruzar la meta frente a los almacenes. Mara y Damián salen contigo.' },
-  circuit: { mode: 'circuit', name: 'Circuito', subtitle: 'Anillo de medianoche', fee: 210, prize: 1860, rep: 19, minLevel: 2, description: 'Completa dos vueltas y cuida la trazada en las curvas del anillo.' },
+  sprint: { mode: 'sprint', name: 'Sprint', subtitle: 'La línea de sal', fee: 80, prize: 1020, rep: 12, minLevel: 1, description: 'Cruza todos los controles en orden. Mara y Damián salen contigo.' },
+  circuit: { mode: 'circuit', name: 'Circuito', subtitle: 'Anillo de medianoche', fee: 210, prize: 1860, rep: 19, minLevel: 2, description: 'Completa dos vueltas y cuida la trazada en las curvas.' },
   time: { mode: 'time', name: 'Contrarreloj', subtitle: 'Turno de noche', fee: 130, prize: 1390, rep: 16, minLevel: 2, target: 32, description: 'Pasa todos los controles en 32 segundos. Cada curva cuenta.' },
   drift: { mode: 'drift', name: 'Drift', subtitle: 'Humo en los muelles', fee: 185, prize: 2110, rep: 21, minLevel: 3, target: 1150, description: 'Usa el freno de mano y suma 1.150 puntos de derrape antes de la última puerta.' },
   drag: { mode: 'drag', name: 'Drag', subtitle: 'Recta de carga', fee: 235, prize: 2420, rep: 24, minLevel: 3, description: 'Acelera sin perder el carril y dosifica el nitro en la recta.' },

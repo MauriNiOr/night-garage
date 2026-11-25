@@ -30,6 +30,7 @@ test('tutorial inicia, repara el Kairo, personaliza y vuelve a guardar',async ({
   await page.screenshot({path:testInfo.outputPath('01-portada.png')})
   await page.getByRole('button',{name:'Nueva partida',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Puerto Umbral',exact:true})).toBeVisible()
+  await expect(page.locator('.story-plate')).toHaveCSS('animation-name','story-camera')
   await page.getByRole('button',{name:'Continuar',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Las llaves',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Continuar',exact:true}).click()
@@ -49,6 +50,7 @@ test('tutorial inicia, repara el Kairo, personaliza y vuelve a guardar',async ({
   await page.keyboard.press('Escape')
 
   await walk(page,'y',327)
+  await walk(page,'x',529)
   await station(page,'diagnostic','Diagnóstico')
   await page.getByRole('button',{name:'Ejecutar diagnóstico'}).click()
   await expect(page.getByText('Avería localizada · Batería de 12 V.')).toBeVisible()
@@ -117,12 +119,50 @@ test('tutorial inicia, repara el Kairo, personaliza y vuelve a guardar',async ({
   await walk(page,'x',493)
   await station(page,'exit','Portón de salida')
   await page.getByRole('button',{name:'Conducir por la ciudad'}).click()
-  await expect(page.locator('#game-ui')).toHaveAttribute('data-place','road')
+  await expect(page.locator('#game-ui')).toHaveAttribute('data-place','road',{timeout:20_000})
   await page.keyboard.down('ArrowUp')
   try {
     await expect(page.locator('#coach')).toContainText('La línea de sal')
     await expect.poll(async () => Number(await page.locator('[data-hud="speed"]').textContent())).toBeGreaterThan(10)
   } finally { await page.keyboard.up('ArrowUp') }
   await page.screenshot({path:testInfo.outputPath('05-puerto-umbral.png')})
+  await page.keyboard.press('Escape')
+  await page.getByRole('button',{name:'Misiones',exact:true}).click()
+  await page.getByRole('button',{name:/Capítulo 1/}).click()
+  await expect(page.getByRole('heading',{name:'Puerto Umbral',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Siguiente escena'}).click()
+  await expect(page.getByRole('heading',{name:'Las llaves',exact:true})).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.locator('#coach').getByRole('button',{name:'Ver guía'}).click()
+  await page.getByRole('button',{name:'Conducción',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Dosifica el nitro'})).toBeVisible()
+  await page.getByRole('button',{name:'Practicar ahora'}).click()
+  await expect(page.locator('#coach')).toContainText('Acelera hasta 25 km/h')
+  await page.keyboard.down('ArrowUp')
+  try {
+    await expect(page.locator('#coach')).toContainText('Da marcha atrás')
+  } finally { await page.keyboard.up('ArrowUp') }
+  await page.keyboard.down('ArrowDown')
+  try {
+    await expect(page.locator('#coach')).toContainText('Usa el nitro al acelerar')
+  } finally { await page.keyboard.up('ArrowDown') }
+  await page.keyboard.down('ArrowUp')
+  try {
+    await page.keyboard.down('Shift')
+    try {
+      await expect(page.locator('#coach')).toContainText('Derrapa en una curva')
+      await expect.poll(async () => Number(await page.locator('[data-hud="speed"]').textContent())).toBeGreaterThan(55)
+    } finally { await page.keyboard.up('Shift') }
+    await page.keyboard.down('Space')
+    await page.keyboard.down('ArrowLeft')
+    try {
+      await expect(page.getByText('Práctica de conducción completada.')).toBeVisible()
+    } finally {
+      await page.keyboard.up('ArrowLeft')
+      await page.keyboard.up('Space')
+    }
+  } finally { await page.keyboard.up('ArrowUp') }
+  await expect(page.locator('#coach')).toContainText('La línea de sal')
   expect(pageErrors).toEqual([])
 })

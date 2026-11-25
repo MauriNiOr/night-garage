@@ -151,3 +151,13 @@ for (const mode of ['drag', 'circuit', 'time', 'drift'] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+test('completes a repeat Sprint on the eastern route', async ({ page }) => {
+  test.setTimeout(130_000);
+  const prepared = prepareRace('sprint', 1, 2000);
+  prepared.nextRaceVariants.sprint = 1;
+  const game = await enterRace(page, 'sprint', prepared);
+  await expect(game.locator('[data-hud=detail]')).toHaveText('Muelle Carmesí');
+  await expect.poll(async () => Number(await game.getAttribute('data-target-x'))).toBeGreaterThan(3376);
+  await driveRace(page, 'sprint');
+});

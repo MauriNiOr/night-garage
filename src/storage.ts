@@ -2,6 +2,7 @@ import {
   ACHIEVEMENTS, COMPONENT_KEYS, CUSTOMIZATIONS, CUSTOMIZATION_KEYS, JOBS, MODELS, RACES, TOURNAMENT, TUTORIAL,
   type RaceMode,
 } from './catalog';
+import { RACE_COURSES } from './courses';
 import { makeCar, newGame, SAVE_VERSION, type Car, type GameState, type RaceRecord } from './domain';
 
 export const SAVE_SLOTS = [1, 2, 3] as const;
@@ -83,17 +84,21 @@ function normalizeCar(source: unknown, version: number): Car {
   return car;
 }
 
+function normalizeRecord(source: unknown): RaceRecord | undefined {
+  const record = object(source);
+  if (!record) return;
+  const time = bounded(record.time, 0, 0, 36000);
+  if (time <= 0) return;
+  return { time, position: integer(record.position, 1, 1, 50), drift: bounded(record.drift, 0, 0, 1000000) };
+}
+
 function normalizeRecords(source: unknown): GameState['stats']['records'] {
   const records: GameState['stats']['records'] = {};
   const data = object(source);
   if (!data) return records;
   for (const mode of Object.keys(RACES) as RaceMode[]) {
-    const record = object(data[mode]);
-    if (!record) continue;
-    const time = bounded(record.time, 0, 0, 36000);
-    if (time <= 0) continue;
-    const clean: RaceRecord = { time, position: integer(record.position, 1, 1, 50), drift: bounded(record.drift, 0, 0, 1000000) };
-    records[mode] = clean;
+    const record = normalizeRecord(data[mode]);
+    if (record) records[mode] = record;
   }
   return records;
 }
@@ -167,6 +172,14 @@ function normalizeSave(raw: unknown): GameState {
     }
     state.stats.distance = bounded(stats.distance, 0);
     state.stats.records = normalizeRecords(stats.records);
+    const allRouteRecords = object(stats.routeRecords);
+    for (const mode of Object.keys(RACE_COURSES) as RaceMode[]) {
+      const stored = object(allRouteRecords?.[mode]);
+      for (let variant = 0; variant < RACE_COURSES[mode].length; variant++) {
+        const record = normalizeRecord(stored?.[variant]) ?? (!allRouteRecords && variant === 0 ? state.stats.records[mode] : undefined);
+        if (record) (state.stats.routeRecords[mode] ??= {})[variant] = record;
+      }
+    }
   }
 
   const suppliedAchievements = Array.isArray(payload.achievements) ? payload.achievements : [];
@@ -185,9 +198,18 @@ function normalizeSave(raw: unknown): GameState {
     state.tournament = { stage: integer(tournament.stage, 0, 0, TOURNAMENT.modes.length - 1), points: integer(tournament.points, 0, 0, 15) };
   }
 
+  const variants = object(payload.nextRaceVariants);
+  for (const mode of Object.keys(RACE_COURSES) as RaceMode[]) {
+    if (typeof variants?.[mode] === 'number') {
+      state.nextRaceVariants[mode] = integer(variants[mode], 0, 0, RACE_COURSES[mode].length - 1);
+    }
+  }
   const pending = object(payload.pendingRace);
   if (pending && isMode(pending.mode) && state.level >= RACES[pending.mode].minLevel) {
-    state.pendingRace = { mode: pending.mode, tournament: pending.tournament === true && state.tournament !== null };
+    const { mode } = pending;
+    const variant = integer(pending.variant, 0, 0, RACE_COURSES[mode].length - 1);
+    state.pendingRace = { mode, tournament: pending.tournament === true && state.tournament !== null, variant };
+    state.nextRaceVariants[mode] = (variant + 1) % RACE_COURSES[mode].length;
   }
   return state;
 }
